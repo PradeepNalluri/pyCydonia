@@ -96,6 +96,110 @@ class RDHist:
                 f.write("{},{}\n".format(self.r[i], self.w[i]))
 
 
+    def get_min_opt_lat_ratio(self, rw_count, cold_miss_count, read_hit_reward, write_hit_reward):
+        read_count = rw_count[0] + cold_miss_count[0]
+        write_count = rw_count[1] + cold_miss_count[1]
+        total_read_hit_reward = read_count * read_hit_reward
+        total_write_hit_reward = write_count * write_hit_reward
+        return total_read_hit_reward + total_write_hit_reward
+
+
+    def get_opt_lat_rate(self, devices, min_allocation_size_kb=1024, output_file=None):
+        """ Write to output file:
+            Budget, Budget %, Max Budget, Max Rd, l1 size, l2 size, l1 read hit, l2 read hit, read miss, 
+            l1 write hit, l2 write hit, write miss, lat_ratio
+        """
+        if output_file is not None:
+            output_handle = self.init_get_opt_lat_rate_output_file(output_file)
+
+        # workload info needed 
+        cum_rd_count_array = self.get_cumulative_rd_count_array()
+        read_cold_miss_count, write_cold_miss_count = self.get_cold_miss_count()
+        cold_miss_array = [read_cold_miss_count, write_cold_miss_count]
+
+        # cache server info needed 
+        cache_server = CacheServer(devices)
+        exclusive_wb_latency_ratio = cache_server.get_exclusive_mt_cache_latency_ratio()
+
+        # decide the max budget and the stepsize for iteration 
+        workload_footprint = self.max_rd
+        max_budget = devices[0]["price"]*workload_footprint
+        budget_step_size = min_allocation_size_kb*devices[0]["product_price"]/(devices[0]["size"]*1024*1024)
+        opt_lat_rate = []
+        for cur_budget in np.arange(budget_step_size, max_budget+budget_step_size, budget_step_size):
+            # for each budget, find the max weighted hit rate and the configuration that yields that hit rate 
+            max_opt_lat_ratio = 0
+            max_opt_lat_ratio_mt_config = [None, None]
+            max_l1_size = math.floor(cur_budget/devices[0]["price"])
+            print("Evaluating Budget: {}, Max L1 Size: {}".format(cur_budget, max_l1_size))
+            for cur_l1_size in range(max_l1_size+1):
+
+                cur_l1_budget = cur_l1_size * devices[0]["price"]
+                cur_l2_budget = cur_budget - cur_l1_budget
+                cur_l2_size = math.floor(cur_l2_budget/devices[1]["price"])
+
+                mt_stat, lat_ratio = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
+                    exclusive_wb_latency_ratio)
+
+                if output_file is not None:
+                    output_handle.write("{},{},{},{},{},{},{},{}\n".format(
+                        cur_budget,
+                        cur_budget/max_budget,
+                        max_budget,
+                        self.max_rd,
+                        cur_l1_size,
+                        cur_l2_size,
+                        ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                        lat_ratio
+                    ))
+
+                if lat_ratio > max_opt_lat_ratio:
+                    max_opt_lat_ratio = lat_ratio
+                    max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
+            else:
+                cur_l1_size = max_l1_size
+                cur_l2_size = 0 
+
+                mt_stat, lat_ratio = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
+                    exclusive_wb_latency_ratio)
+
+                if output_file is not None:
+                    output_handle.write("{},{},{},{},{},{},{},{}\n".format(
+                        cur_budget,
+                        cur_budget/max_budget,
+                        max_budget,
+                        self.max_rd,
+                        cur_l1_size,
+                        cur_l2_size,
+                        ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                        lat_ratio
+                    ))
+
+                if lat_ratio > max_opt_lat_ratio:
+                    max_opt_lat_ratio = lat_ratio
+                    max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
+
+            print(max_opt_lat_ratio, max_opt_lat_ratio_mt_config)
+            opt_lat_rate.append([cur_budget, max_opt_lat_ratio, max_opt_lat_ratio_mt_config])
+
+
+    def mt_eval(self, l1_size, l2_size, devices, cum_rd_count_array, cold_miss_array,
+        exclusive_wb_latency_ratio):
+
+        l1_size = min(l1_size, len(cum_rd_count_array))
+        l2_size = min(l2_size, len(cum_rd_count_array)-l1_size)
+        mt_stat = self.get_mt_stat_from_cumulative_rd_count(cum_rd_count_array, cold_miss_array,
+            l1_size, l2_size)
+        lat_penalty = np.sum(np.multiply(mt_stat, exclusive_wb_latency_ratio))
+        rw_count = np.sum(mt_stat, axis=1)
+        min_lat_penalty = self.get_min_opt_lat_ratio(rw_count, cold_miss_array,
+            exclusive_wb_latency_ratio[0][0], exclusive_wb_latency_ratio[1][0])
+        opt_lat_ratio = min_lat_penalty/lat_penalty
+
+        return mt_stat, opt_lat_ratio
+
+
+
     def get_opt_mt_exclusive_wb_for_budget_and_devices(self, budget, devices, output_file=None):
         """ Get the optimal exclusive write-back multi-tier cache for the given budget
             and device choices. 
@@ -107,7 +211,7 @@ class RDHist:
         """
 
         if output_file is not None:
-            output_file_handle = open(output_file, "w+")
+            output_file_handle = open(output_file, "ab")
 
         max_tier_1_size_mb = math.floor(budget/(devices[0]["price"]*256)) 
         min_lat, min_config, min_config_stat = math.inf, None, None 
@@ -235,20 +339,28 @@ class RDHist:
 
 
     @staticmethod
+    def init_get_opt_lat_rate_output_file(output_file_path):
+        """ Write to output file:
+            Budget, Budget %, Max Budget, Max Rd, l1 size, l2 size, l1 read hit, l2 read hit, read miss, 
+            l1 write hit, l2 write hit, write miss, lat_ratio
+        """
+        output_file_handle = open(output_file_path, "ab")
+        output_file_handle.write("budget,percentage_budget,max_budget,max_rd,l1_size,l2_size,l1_read_hit,"
+            "l2_read_hit,read_miss,l1_write_hit,l2_write_hit,write_miss,lat_ratio\n")
+        return output_file_handle
+
+    @staticmethod
     def get_mt_stat_from_cumulative_rd_count(cumulative_rd_count, cold_miss_count, tier_1_size, tier_2_size):
         """ Get statistics of a given tier 1 and 2 size for a cumulative RD count and cold miss count. 
-        """
 
-        assert tier_1_size+tier_2_size>0, \
-            "Tier 1 size is {} and Tier 2 size is {}".format(tier_1_size, tier_2_size)
-
-
-        """
             The stat array contains the following information. 
 
             Row 0: tier 1 read hits, tier 2 read hits, read misses 
             Row 1: tier 1 write hits, tier 2 write hits, write misses 
         """
+        assert tier_1_size+tier_2_size>0, \
+            "Tier 1 size is {} and Tier 2 size is {}".format(tier_1_size, tier_2_size)
+
         mt_stat_array = np.zeros([2,3], dtype=int)
 
         # Read Stats 
@@ -300,18 +412,14 @@ class RDHist:
 
 
     def get_hit_rate(self):
-        hit_rate_array = []
-        read_count, write_count = self.get_read_write_count()
-
-        cur_hit_rate = self.r[-1]/read_count if read_count > 0 else 0.0
-        hit_rate_array.append(cur_hit_rate)
-
+        read_count, _ = self.get_read_write_count()
+        cold_miss_rate = self.r[-1]/read_count if read_count > 0 else 0.0
+        hit_rate_array = [cold_miss_rate]
         total_read_hit = 0
         for i in range(self.max_rd+1):
             total_read_hit += self.r[i]
             cur_hit_rate = total_read_hit/read_count if read_count > 0 else 0.0
             hit_rate_array.append(cur_hit_rate)
-
         return hit_rate_array
 
 
@@ -321,24 +429,17 @@ class RDHist:
             needed to obtain it is returned. 
         """
 
-        read_count, write_count = self.get_read_write_count()
-        total_read_hit = 0 
-        cache_size = 0
-        for i in range(self.max_rd+1):
-            total_read_hit += self.r[i]
-            
-            if read_count == 0:
-                current_hit_rate = 0
-            else:
-                current_hit_rate = total_read_hit/read_count
-
-            if current_hit_rate > target_hit_rate:
-                return i+1, total_read_hit/read_count
-
+        read_count, _ = self.get_read_write_count()
         if read_count == 0:
             return self.max_rd, 0
-        else:
-            return self.max_rd, total_read_hit/read_count 
+
+        total_read_hit = 0 
+        for i in range(self.max_rd+1):
+            total_read_hit += self.r[i]
+            current_hit_rate = total_read_hit/read_count
+            if current_hit_rate >= target_hit_rate:
+                return i+1, current_hit_rate
+        return self.max_rd+1, total_read_hit/read_count 
 
 
     def get_cache_size_for_normalized_hit_rate(self, normalized_hit_rate):
@@ -346,8 +447,8 @@ class RDHist:
         """
 
         assert(normalized_hit_rate>0 and normalized_hit_rate<=1)
-        read_count, write_count = self.get_read_write_count()
-        read_cold_miss_count, write_cold_miss_count = self.get_cold_miss_count()
+        read_count, _ = self.get_read_write_count()
+        read_cold_miss_count, _ = self.get_cold_miss_count()
         total_read_hit = 0
         for i in range(self.max_rd+1):
             total_read_hit += self.r[i]

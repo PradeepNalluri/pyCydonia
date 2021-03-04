@@ -9,6 +9,27 @@ class CacheServer():
         self.tiers = tiers
 
 
+    def get_exclusive_mt_cache_latency_ratio(self) -> np.ndarray:
+        """ Returns the relative ratio of latency of different tiers. This is used to 
+            penalize the latency incurred by different cache devices. 
+
+            Args:
+                self: A CacheServer instance. 
+
+        Returns:
+            A [2,3] numpy array where the first index represents read (0) and 
+            write(1). The second index represents tier 1 hit latency (0), tier 
+            2 hit latency (1), miss latency (2) respectively. For example: 
+            
+            [[1,2,4],[1,10,10]] where
+            The penalty for tier 1 read hit is 1, tier 2 read hit is 2 and a read miss 
+            is 4. The penalty of tier 1 write hit is 1, tier 2 and write miss cost the same with 10. 
+        """
+
+        cache_latency = self.get_exclusive_wb_mt_cache_latency()
+        return np.divide(cache_latency, np.min(cache_latency))
+
+
     def get_exclusive_wb_mt_cache_latency(self) -> np.ndarray:
         """ Returns the latency of a exclusive, write-back multi-tier cache. 
         
