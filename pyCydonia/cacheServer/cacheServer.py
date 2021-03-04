@@ -29,6 +29,19 @@ class CacheServer():
         cache_latency = self.get_exclusive_wb_mt_cache_latency()
         return np.divide(cache_latency, np.min(cache_latency))
 
+    def get_st_cache_latency_ratio(self) -> np.ndarray:
+        cache_latency = self.get_wb_st_cache_latency()
+        return np.divide(cache_latency, np.min(cache_latency))
+    
+    def get_wb_st_cache_latency(self) -> np.ndarray:
+        st_wb_latency = np.zeros([2, 2], dtype=float)
+        st_wb_latency[0][0] = self.tiers[0]["read_lat"] # Tier 1 read hit latency 
+        st_wb_latency[0][1] = self.tiers[-1]["read_lat"] + self.tiers[0]["write_lat"] 
+
+        st_wb_latency[1][0] = self.tiers[0]["write_lat"] # Tier 1 write hit latency 
+        st_wb_latency[1][1] = self.tiers[0]["write_lat"] # Tier 1 write hit latency 
+        return st_wb_latency
+
 
     def get_exclusive_wb_mt_cache_latency(self) -> np.ndarray:
         """ Returns the latency of a exclusive, write-back multi-tier cache. 
