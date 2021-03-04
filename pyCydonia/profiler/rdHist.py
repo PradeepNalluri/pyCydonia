@@ -182,7 +182,8 @@ class RDHist:
                     max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
 
             print(max_opt_lat_ratio, max_opt_lat_ratio_mt_config)
-            opt_lat_rate.append([cur_budget, max_opt_lat_ratio, max_opt_lat_ratio_mt_config])
+            opt_lat_rate.append([cur_budget, budget_ratio, max_opt_lat_ratio, max_opt_lat_ratio_mt_config])
+        return opt_lat_rate
 
 
     def mt_eval(self, l1_size, l2_size, devices, cum_rd_count_array, cold_miss_array,
