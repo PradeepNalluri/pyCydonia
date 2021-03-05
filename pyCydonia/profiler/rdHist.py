@@ -105,10 +105,14 @@ class RDHist:
 
 
     def get_opt_lat_rate(self, devices, output_file=None):
-        """ Write to output file:
+        """ Get the opt lat rate for different percentage of budget relative to the workload 
+            footprint for this RD hist and a set of devices.
+        
+            Output Format:
             Budget, Budget %, Max Budget, Max Rd, l1 size, l2 size, l1 read hit, l2 read hit, read miss, 
             l1 write hit, l2 write hit, write miss, lat_ratio
         """
+
         if output_file is not None:
             output_handle = self.init_get_opt_lat_rate_output_file(output_file)
 
@@ -132,15 +136,15 @@ class RDHist:
             max_opt_lat_ratio = 0
             max_opt_lat_ratio_mt_config = [None, None]
             max_l1_size = math.floor(cur_budget/devices[0]["price"])
-            print("Evaluating Budget Ratio: {}, Budget: {}, Max L1 Size: {}".format(
-                budget_ratio, cur_budget, max_l1_size))
+            # print("Evaluating Budget Ratio: {}, Budget: {}, Max L1 Size: {}".format(
+            #     budget_ratio, cur_budget, max_l1_size))
             for cur_l1_size in range(max_l1_size+1):
 
                 cur_l1_budget = cur_l1_size * devices[0]["price"]
                 cur_l2_budget = cur_budget - cur_l1_budget
                 cur_l2_size = math.floor(cur_l2_budget/devices[1]["price"])
 
-                mt_stat, lat_ratio = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
+                mt_stat, lat_ratio = self.get_lat_rate(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
                     exclusive_wb_latency_ratio, st_wb_latency_ratio)
 
                 if output_file is not None:
@@ -162,7 +166,7 @@ class RDHist:
                 cur_l1_size = max_l1_size
                 cur_l2_size = 0 
 
-                mt_stat, lat_ratio = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
+                mt_stat, lat_ratio = self.get_lat_rate(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
                     exclusive_wb_latency_ratio, st_wb_latency_ratio)
 
                 if output_file is not None:
@@ -181,13 +185,16 @@ class RDHist:
                     max_opt_lat_ratio = lat_ratio
                     max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
 
-            print(max_opt_lat_ratio, max_opt_lat_ratio_mt_config)
+            # print(max_opt_lat_ratio, max_opt_lat_ratio_mt_config)
             opt_lat_rate.append([cur_budget, budget_ratio, max_opt_lat_ratio, max_opt_lat_ratio_mt_config])
         return opt_lat_rate
 
 
-    def mt_eval(self, l1_size, l2_size, devices, cum_rd_count_array, cold_miss_array,
+    def get_lat_rate(self, l1_size, l2_size, devices, cum_rd_count_array, cold_miss_array,
         exclusive_wb_latency_ratio, st_wb_latency_ratio):
+        """ Get the statistics of a given workload and multi-tier cache and the optimal 
+            latency ratio. 
+        """
 
         l1_size = min(l1_size, len(cum_rd_count_array))
         l2_size = min(l2_size, len(cum_rd_count_array)-l1_size)
@@ -402,6 +409,8 @@ class RDHist:
 
 
     def get_read_write_count(self):
+        """ Get the read and write count in the RD hist """
+
         read_count = 0 
         write_count = 0 
         for i in range(-1, self.max_rd+1):
@@ -411,10 +420,16 @@ class RDHist:
 
 
     def get_cold_miss_count(self):
+        """ Get the number of cold misses """
+
         return self.r[-1], self.w[-1]
 
 
     def get_hit_rate(self):
+        """ The hit rate of this RD hist where the first entry is the cold miss 
+            rate followed by hit rate for cache sizes starting at 0.
+        """
+
         read_count, _ = self.get_read_write_count()
         cold_miss_rate = self.r[-1]/read_count if read_count > 0 else 0.0
         hit_rate_array = [cold_miss_rate]
