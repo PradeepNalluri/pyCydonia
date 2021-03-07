@@ -105,20 +105,11 @@ class RDHist:
         return read_penalty+read_cold_miss_penalty+write_penalty+write_cold_miss_penalty
 
 
-<<<<<<< HEAD
     def get_opt_lat_rate(self, devices, output_file=None, output_type="basic"):
         """ Write to output file:
-=======
-    def get_opt_lat_rate(self, devices, output_file=None):
-        """ Get the opt lat rate for different percentage of budget relative to the workload 
-            footprint for this RD hist and a set of devices.
-        
-            Output Format:
->>>>>>> 616531538fb36db79d344feb81b96b7210aa8857
             Budget, Budget %, Max Budget, Max Rd, l1 size, l2 size, l1 read hit, l2 read hit, read miss, 
             l1 write hit, l2 write hit, write miss, lat_ratio
         """
-
         if output_file is not None:
             output_handle = self.init_get_opt_lat_rate_output_file(output_file)
 
@@ -147,14 +138,8 @@ class RDHist:
             # for each budget, find the max weighted hit rate and the configuration that yields that hit rate 
             cur_budget = budget_ratio*max_budget
             max_l1_size = math.floor(cur_budget/devices[0]["price"])
-<<<<<<< HEAD
             print("Evaluating Budget Ratio: {}, Budget: {}, Max L1 Size: {}".format(
                 budget_ratio, cur_budget, max_l1_size))
-=======
-            # print("Evaluating Budget Ratio: {}, Budget: {}, Max L1 Size: {}".format(
-            #     budget_ratio, cur_budget, max_l1_size))
-            for cur_l1_size in range(max_l1_size+1):
->>>>>>> 616531538fb36db79d344feb81b96b7210aa8857
 
             max_opt_lat_ratio = 0
             max_opt_lat_ratio_mt_config = [None, None]
@@ -163,13 +148,8 @@ class RDHist:
                 cur_l2_budget = cur_budget - cur_l1_budget
                 cur_l2_size = math.floor(cur_l2_budget/devices[1]["price"])
 
-<<<<<<< HEAD
                 mt_stat, lat_ratio, min_latency = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, 
                     cold_miss_array, exclusive_wb_latency_array, d1_st_latency_array, d2_st_latency_array)
-=======
-                mt_stat, lat_ratio = self.get_lat_rate(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
-                    exclusive_wb_latency_ratio, st_wb_latency_ratio)
->>>>>>> 616531538fb36db79d344feb81b96b7210aa8857
 
                 if output_file is not None:
                     if output_type == "full":
@@ -208,13 +188,8 @@ class RDHist:
                 cur_l1_size = max_l1_size
                 cur_l2_size = 0 
 
-<<<<<<< HEAD
                 mt_stat, lat_ratio, min_latency = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, 
                     cold_miss_array, exclusive_wb_latency_array, d1_st_latency_array, d2_st_latency_array)
-=======
-                mt_stat, lat_ratio = self.get_lat_rate(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
-                    exclusive_wb_latency_ratio, st_wb_latency_ratio)
->>>>>>> 616531538fb36db79d344feb81b96b7210aa8857
 
                 if output_file is not None:
                     if output_type == "full":
@@ -250,12 +225,8 @@ class RDHist:
                     max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
                     max_opt_lat_ratio_mt_stat = mt_stat
 
-<<<<<<< HEAD
             print(max_opt_lat_ratio, max_opt_lat_ratio_mt_config)
             print(max_opt_lat_ratio_mt_stat)
-=======
-            # print(max_opt_lat_ratio, max_opt_lat_ratio_mt_config)
->>>>>>> 616531538fb36db79d344feb81b96b7210aa8857
             opt_lat_rate.append([cur_budget, budget_ratio, max_opt_lat_ratio, max_opt_lat_ratio_mt_config])
 
             if output_type == "basic":
@@ -274,16 +245,8 @@ class RDHist:
         return opt_lat_rate
 
 
-<<<<<<< HEAD
     def mt_eval(self, l1_size, l2_size, devices, cum_rd_count_array, cold_miss_array,
         exclusive_wb_latency_ratio, d1_st_latency_ratio, d2_st_latency_ratio):
-=======
-    def get_lat_rate(self, l1_size, l2_size, devices, cum_rd_count_array, cold_miss_array,
-        exclusive_wb_latency_ratio, st_wb_latency_ratio):
-        """ Get the statistics of a given workload and multi-tier cache and the optimal 
-            latency ratio. 
-        """
->>>>>>> 616531538fb36db79d344feb81b96b7210aa8857
 
         adjusted_l1_size = min(l1_size, len(cum_rd_count_array))
         adjusted_l2_size = min(l2_size, len(cum_rd_count_array)-l1_size)
