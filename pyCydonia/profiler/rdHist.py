@@ -8,6 +8,7 @@
 """
 
 import math 
+import pathlib 
 import numpy as np 
 import pandas as pd 
 from collections import Counter, defaultdict
@@ -99,12 +100,12 @@ class RDHist:
     def get_min_opt_lat_ratio(self, rw_count, cold_miss_count, st_wb_latency_ratio):
         read_penalty = rw_count[0]*st_wb_latency_ratio[0][0]
         write_penalty = rw_count[1]*st_wb_latency_ratio[1][0]
-        read_cold_miss_penalty = cold_miss_count[0]*st_wb_latency_ratio[0][1]
-        write_cold_miss_penalty = cold_miss_count[1]*st_wb_latency_ratio[1][1]
+        read_cold_miss_penalty = cold_miss_count[0]*st_wb_latency_ratio[0][-1]
+        write_cold_miss_penalty = cold_miss_count[1]*st_wb_latency_ratio[1][-1]
         return read_penalty+read_cold_miss_penalty+write_penalty+write_cold_miss_penalty
 
 
-    def get_opt_lat_rate(self, devices, output_file=None):
+    def get_opt_lat_rate(self, devices, output_file=None, output_type="basic"):
         """ Write to output file:
             Budget, Budget %, Max Budget, Max Rd, l1 size, l2 size, l1 read hit, l2 read hit, read miss, 
             l1 write hit, l2 write hit, write miss, lat_ratio
@@ -117,92 +118,157 @@ class RDHist:
         read_cold_miss_count, write_cold_miss_count = self.get_cold_miss_count()
         cold_miss_array = [read_cold_miss_count, write_cold_miss_count]
 
-        # cache server info needed 
         cache_server = CacheServer(devices)
-        exclusive_wb_latency_ratio = cache_server.get_exclusive_mt_cache_latency_ratio()
-        st_wb_latency_ratio = cache_server.get_st_cache_latency_ratio()
+
+        # Get the latency of exclusive MT cache 
+        exclusive_wb_latency_array = cache_server.get_exclusive_wb_mt_cache_latency()
+
+        # Get the latency of single tier D1
+        d1_st_latency_array = cache_server.get_wb_st_cache_latency(0)
+
+        # Get the latency of single tier D2 
+        d2_st_latency_array = cache_server.get_wb_st_cache_latency(1)
 
         # decide the max budget and the stepsize for iteration 
         workload_footprint = self.max_rd
         max_budget = devices[0]["price"]*workload_footprint
+
         opt_lat_rate = []
         for budget_ratio in np.arange(0.01,1.01,0.01):
             # for each budget, find the max weighted hit rate and the configuration that yields that hit rate 
             cur_budget = budget_ratio*max_budget
-            max_opt_lat_ratio = 0
-            max_opt_lat_ratio_mt_config = [None, None]
             max_l1_size = math.floor(cur_budget/devices[0]["price"])
             print("Evaluating Budget Ratio: {}, Budget: {}, Max L1 Size: {}".format(
                 budget_ratio, cur_budget, max_l1_size))
-            for cur_l1_size in range(max_l1_size+1):
 
+            max_opt_lat_ratio = 0
+            max_opt_lat_ratio_mt_config = [None, None]
+            for cur_l1_size in range(max_l1_size+1):
                 cur_l1_budget = cur_l1_size * devices[0]["price"]
                 cur_l2_budget = cur_budget - cur_l1_budget
                 cur_l2_size = math.floor(cur_l2_budget/devices[1]["price"])
 
-                mt_stat, lat_ratio = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
-                    exclusive_wb_latency_ratio, st_wb_latency_ratio)
+                mt_stat, lat_ratio, min_latency = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, 
+                    cold_miss_array, exclusive_wb_latency_array, d1_st_latency_array, d2_st_latency_array)
 
                 if output_file is not None:
-                    output_handle.write("{},{},{},{},{},{},{},{}\n".format(
-                        cur_budget,
-                        budget_ratio,
-                        max_budget,
-                        self.max_rd,
-                        cur_l1_size,
-                        cur_l2_size,
-                        ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
-                        lat_ratio
-                    ))
+                    if output_type == "full":
+                        output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                            cur_budget,
+                            budget_ratio,
+                            max_budget,
+                            self.max_rd,
+                            cur_l1_size,
+                            cur_l2_size,
+                            ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                            min_latency,
+                            lat_ratio
+                        ))
+                    elif output_type == "basic":
+                        if cur_l1_size == 0:
+                            output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                                cur_budget,
+                                budget_ratio,
+                                max_budget,
+                                self.max_rd,
+                                cur_l1_size,
+                                cur_l2_size,
+                                ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                                min_latency,
+                                lat_ratio
+                            ))
+
+                #print("Lat Ratio is {}".format(lat_ratio))
 
                 if lat_ratio > max_opt_lat_ratio:
                     max_opt_lat_ratio = lat_ratio
                     max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
+                    max_opt_lat_ratio_mt_stat = mt_stat
             else:
                 cur_l1_size = max_l1_size
                 cur_l2_size = 0 
 
-                mt_stat, lat_ratio = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, cold_miss_array, 
-                    exclusive_wb_latency_ratio, st_wb_latency_ratio)
+                mt_stat, lat_ratio, min_latency = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, 
+                    cold_miss_array, exclusive_wb_latency_array, d1_st_latency_array, d2_st_latency_array)
 
                 if output_file is not None:
-                    output_handle.write("{},{},{},{},{},{},{},{}\n".format(
-                        cur_budget,
-                        cur_budget/max_budget,
-                        max_budget,
-                        self.max_rd,
-                        cur_l1_size,
-                        cur_l2_size,
-                        ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
-                        lat_ratio
-                    ))
+                    if output_type == "full":
+                        output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                            cur_budget,
+                            cur_budget/max_budget,
+                            max_budget,
+                            self.max_rd,
+                            cur_l1_size,
+                            cur_l2_size,
+                            ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                            min_latency,
+                            lat_ratio
+                        ))
+                    elif output_type == "basic":
+                        if cur_l2_size == 0:
+                            output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                                cur_budget,
+                                budget_ratio,
+                                max_budget,
+                                self.max_rd,
+                                cur_l1_size,
+                                cur_l2_size,
+                                ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                                min_latency,
+                                lat_ratio
+                            ))
+
+                #print("Lat Ratio is {}".format(lat_ratio))
 
                 if lat_ratio > max_opt_lat_ratio:
                     max_opt_lat_ratio = lat_ratio
                     max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
+                    max_opt_lat_ratio_mt_stat = mt_stat
 
             print(max_opt_lat_ratio, max_opt_lat_ratio_mt_config)
+            print(max_opt_lat_ratio_mt_stat)
             opt_lat_rate.append([cur_budget, budget_ratio, max_opt_lat_ratio, max_opt_lat_ratio_mt_config])
+
+            if output_type == "basic":
+                output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                    cur_budget,
+                    budget_ratio,
+                    max_budget,
+                    self.max_rd,
+                    max_opt_lat_ratio_mt_config[0],
+                    max_opt_lat_ratio_mt_config[1],
+                    ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in max_opt_lat_ratio_mt_stat]),
+                    min_latency,
+                    max_opt_lat_ratio
+                ))
+
         return opt_lat_rate
 
 
     def mt_eval(self, l1_size, l2_size, devices, cum_rd_count_array, cold_miss_array,
-        exclusive_wb_latency_ratio, st_wb_latency_ratio):
+        exclusive_wb_latency_ratio, d1_st_latency_ratio, d2_st_latency_ratio):
 
-        l1_size = min(l1_size, len(cum_rd_count_array))
-        l2_size = min(l2_size, len(cum_rd_count_array)-l1_size)
+        adjusted_l1_size = min(l1_size, len(cum_rd_count_array))
+        adjusted_l2_size = min(l2_size, len(cum_rd_count_array)-l1_size)
         mt_stat = self.get_mt_stat_from_cumulative_rd_count(cum_rd_count_array, cold_miss_array,
-            l1_size, l2_size)
-        lat_penalty = np.sum(np.multiply(mt_stat, exclusive_wb_latency_ratio))
+            adjusted_l1_size , adjusted_l2_size)
+
+        if l1_size == 0:
+            lat_penalty = np.sum(np.multiply(mt_stat, d2_st_latency_ratio))
+        elif l2_size == 0:
+            lat_penalty = np.sum(np.multiply(mt_stat, d1_st_latency_ratio))
+        else:
+            lat_penalty = np.sum(np.multiply(mt_stat, exclusive_wb_latency_ratio))
+
         rw_count = np.sum(mt_stat, axis=1)
-        min_lat_penalty = self.get_min_opt_lat_ratio(rw_count, cold_miss_array,st_wb_latency_ratio)
+        min_lat_penalty = self.get_min_opt_lat_ratio(rw_count, cold_miss_array, d1_st_latency_ratio)
         opt_lat_ratio = min_lat_penalty/lat_penalty
 
-        return mt_stat, opt_lat_ratio
+        return mt_stat, opt_lat_ratio, min_lat_penalty
 
 
-
-    def get_opt_mt_exclusive_wb_for_budget_and_devices(self, budget, devices, output_file=None):
+    def get_opt_mt_exclusive_wb_for_budget_and_devices(self, budget, devices, output_file=None,
+        allocation_size=256):
         """ Get the optimal exclusive write-back multi-tier cache for the given budget
             and device choices. 
 
@@ -215,7 +281,7 @@ class RDHist:
         if output_file is not None:
             output_file_handle = open(output_file, "ab")
 
-        max_tier_1_size_mb = math.floor(budget/(devices[0]["price"]*256)) 
+        max_tier_1_size_mb = math.floor(budget/(devices[0]["price"]*allocation_size)) 
         min_lat, min_config, min_config_stat = math.inf, None, None 
 
         # workload info needed 
@@ -228,11 +294,11 @@ class RDHist:
 
         for cur_tier_1_size_mb in range(max_tier_1_size_mb+1):
             
-            remaining_budget = budget - cur_tier_1_size_mb*(devices[0]["price"]*256)
-            cur_tier_2_size_mb = min(math.floor(remaining_budget/(devices[1]["price"]*256)), 
-                math.floor(self.max_rd/256))
+            remaining_budget = budget - cur_tier_1_size_mb*(devices[0]["price"]*allocation_size)
+            cur_tier_2_size_mb = min(math.floor(remaining_budget/(devices[1]["price"]*allocation_size)), 
+                math.floor(self.max_rd/allocation_size))
 
-            if self.max_rd < 256 and math.floor(remaining_budget/(devices[1]["price"]*256))>0:
+            if self.max_rd < allocation_size and math.floor(remaining_budget/(devices[1]["price"]*allocation_size))>0:
                 cur_tier_2_size_mb = 1
 
             # adjust tier 1 and tier 2 sizes 
@@ -346,10 +412,16 @@ class RDHist:
             Budget, Budget %, Max Budget, Max Rd, l1 size, l2 size, l1 read hit, l2 read hit, read miss, 
             l1 write hit, l2 write hit, write miss, lat_ratio
         """
-        output_file_handle = open(output_file_path, "a+")
-        header = "{},{}\n".format("budget,percentage_budget,max_budget,max_rd,l1_size,l2_size,l1_read_hit",
-            "l2_read_hit,read_miss,l1_write_hit,l2_write_hit,write_miss,lat_ratio")
-        output_file_handle.write(header)
+        output_file_path = pathlib.Path(output_file_path)
+
+        if not output_file_path.is_file():
+            output_file_handle = output_file_path.open("a+")
+            header = "{},{}\n".format("budget,percentage_budget,max_budget,max_rd,l1_size,l2_size,l1_read_hit",
+            "l2_read_hit,read_miss,l1_write_hit,l2_write_hit,write_miss,min_lat,lat_ratio")
+            output_file_handle.write(header)
+        else:
+            output_file_handle = output_file_path.open("a")
+
         return output_file_handle
 
     @staticmethod
