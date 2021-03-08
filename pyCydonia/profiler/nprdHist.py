@@ -35,7 +35,7 @@ class NPHist:
     def get_lat_ratio_curve(self, cache_server, budget_percentage_array=range(1,101)):
         """ Generate an OPT latency ratio curve for this RD histogram and cache server. 
         """
-        max_budget = cache_server.config[0]["price"]*len(self.data)
+        max_budget = cache_server.config[0]["price"]*self.max_cache_size
         min_lat = self.get_min_lat(cache_server)
         output_tuple = namedtuple('output_tuple', self.output_headers)
 
@@ -66,9 +66,13 @@ class NPHist:
             st_data.append([d1_output_tuple, d2_output_tuple])
 
             for cur_t1_size in range(max_t1_size+1):
-                cur_t1_budget = cur_t1_size * cache_server.config[0]["price"]
+                cur_t1_budget = cur_t1_size*cache_server.config[0]["price"]
                 cur_t2_budget = cur_budget - cur_t1_budget
                 cur_t2_size = math.floor(cur_t2_budget/cache_server.config[1]["price"])
+
+                assert cur_t1_budget>=0 and cur_t2_budget>=0,
+                    "Tier 1 Budget: {}, Tier 2 Budget: {}, Tier with negative budget!".format(
+                        cur_t1_budget, cur_t2_budget)
 
                 cache_hit_stats, lat_penalty = self.eval_cache([cur_t1_size, cur_t2_size], cache_server)
                 lat_ratio = min_lat/lat_penalty
@@ -103,7 +107,8 @@ class NPHist:
         adjusted_l2_size = min(tiers[1], self.max_cache_size-adjusted_l1_size)
 
         assert adjusted_l1_size>=0 and adjusted_l2_size>=0, \
-            "Negative cache size found. L1 {}, L2 {}".format(adjusted_l1_size, adjusted_l2_size)
+            "Negative cache size found. L1 {}, L2 {}, max cache size: {}, tiers: {}".format(
+                adjusted_l1_size, adjusted_l2_size, self.max_cache_size, tiers)
 
         if tiers[0] == 0:
             cache_hit_stats = self.get_cache_hit_stats([adjusted_l2_size])
