@@ -245,6 +245,114 @@ class RDHist:
         return opt_lat_rate
 
 
+    def mt_eval_percentage(self, devices, budget_ratio, cum_rd_count_array, cold_miss_array, mt_lat_array,
+        d1_st_lat_array, d2_st_lat_array):
+        cur_budget = budget_ratio*max_budget
+        max_l1_size = math.floor(cur_budget/devices[0]["price"])
+        print("Evaluating Budget Ratio: {}, Budget: {}, Max L1 Size: {}".format(
+            budget_ratio, cur_budget, max_l1_size))
+
+        max_opt_lat_ratio = 0
+        max_opt_lat_ratio_mt_config = [None, None]
+        for cur_l1_size in range(max_l1_size+1):
+            cur_l1_budget = cur_l1_size * devices[0]["price"]
+            cur_l2_budget = cur_budget - cur_l1_budget
+            cur_l2_size = math.floor(cur_l2_budget/devices[1]["price"])
+
+            mt_stat, lat_ratio, min_lat_possible = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, 
+                cold_miss_array, mt_lat_array, d1_st_lat_array, d2_st_lat_array)
+
+            if output_file is not None:
+                if output_type == "full":
+                    output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                        cur_budget,
+                        budget_ratio,
+                        max_budget,
+                        self.max_rd,
+                        cur_l1_size,
+                        cur_l2_size,
+                        ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                        min_latency,
+                        lat_ratio
+                    ))
+                elif output_type == "basic":
+                    if cur_l1_size == 0:
+                        output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                            cur_budget,
+                            budget_ratio,
+                            max_budget,
+                            self.max_rd,
+                            cur_l1_size,
+                            cur_l2_size,
+                            ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                            min_latency,
+                            lat_ratio
+                        ))
+
+            if lat_ratio > max_opt_lat_ratio:
+                max_opt_lat_ratio = lat_ratio
+                max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
+                max_opt_lat_ratio_mt_stat = mt_stat
+        else:
+            cur_l1_size = max_l1_size
+            cur_l2_size = 0 
+
+            mt_stat, lat_ratio, min_latency = self.mt_eval(cur_l1_size, cur_l2_size, devices, cum_rd_count_array, 
+                cold_miss_array, exclusive_wb_latency_array, d1_st_latency_array, d2_st_latency_array)
+
+            if output_file is not None:
+                if output_type == "full":
+                    output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                        cur_budget,
+                        cur_budget/max_budget,
+                        max_budget,
+                        self.max_rd,
+                        cur_l1_size,
+                        cur_l2_size,
+                        ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                        min_latency,
+                        lat_ratio
+                    ))
+                elif output_type == "basic":
+                    if cur_l2_size == 0:
+                        output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                            cur_budget,
+                            budget_ratio,
+                            max_budget,
+                            self.max_rd,
+                            cur_l1_size,
+                            cur_l2_size,
+                            ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in mt_stat]),
+                            min_latency,
+                            lat_ratio
+                        ))
+
+            if lat_ratio > max_opt_lat_ratio:
+                max_opt_lat_ratio = lat_ratio
+                max_opt_lat_ratio_mt_config = [cur_l1_size, cur_l2_size]
+                max_opt_lat_ratio_mt_stat = mt_stat
+
+        print(max_opt_lat_ratio, max_opt_lat_ratio_mt_config)
+        print(max_opt_lat_ratio_mt_stat)
+        opt_lat_rate.append([cur_budget, budget_ratio, max_opt_lat_ratio, max_opt_lat_ratio_mt_config])
+
+        if output_type == "basic":
+            output_handle.write("{},{},{},{},{},{},{},{},{}\n".format(
+                cur_budget,
+                budget_ratio,
+                max_budget,
+                self.max_rd,
+                max_opt_lat_ratio_mt_config[0],
+                max_opt_lat_ratio_mt_config[1],
+                ",".join(["{},{},{}".format(_[0], _[1], _[2]) for _ in max_opt_lat_ratio_mt_stat]),
+                min_latency,
+                max_opt_lat_ratio
+            ))
+
+        return opt_lat_rate
+
+
+
     def mt_eval(self, l1_size, l2_size, devices, cum_rd_count_array, cold_miss_array,
         exclusive_wb_latency_ratio, d1_st_latency_ratio, d2_st_latency_ratio):
 
