@@ -70,6 +70,10 @@ class NPHist:
                 cur_t2_budget = cur_budget - cur_t1_budget
                 cur_t2_size = math.floor(cur_t2_budget/cache_server.config[1]["price"])
 
+                if cur_t2_budget < cache_server.config[1]["price"]:
+                    cur_t2_budget = 0
+                    cur_t2_size = 0
+
                 assert cur_t1_budget>=0 and cur_t2_budget>=0, \
                     "Tier 1 Budget: {}, Tier 2 Budget: {}, Tier with negative budget!".format(
                         cur_t1_budget, cur_t2_budget)
