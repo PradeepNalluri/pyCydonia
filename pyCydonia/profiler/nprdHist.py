@@ -66,8 +66,8 @@ class NPHist:
                 0, max_t2_size)
             st_data.append([d1_output_tuple, d2_output_tuple])
 
-            for cur_t1_size in range(max_t1_size+1):
-                cur_t1_size = cur_t1_size * min_allocation_size
+            for t1_size in range(max_t1_size+1):
+                cur_t1_size = t1_size * min_allocation_size
                 cur_t1_budget = cur_t1_size*cache_server.config[0]["price"]
                 cur_t2_budget = cur_budget - cur_t1_budget
                 cur_t2_size = math.floor(cur_t2_budget/cache_server.config[1]["price"])
