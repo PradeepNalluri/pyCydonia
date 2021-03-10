@@ -50,8 +50,8 @@ class NPHist:
             max_t2_size = math.floor(cur_budget/(cache_server.config[1]["price"]*min_allocation_size))
 
             # eval single tier configurations first and record 
-            d1_st_cache_hit_stats, d1_lat_penalty = self.eval_cache([max_t1_size, 0], cache_server)
-            d2_st_cache_hit_stats, d2_lat_penalty = self.eval_cache([0, max_t2_size], cache_server)
+            d1_st_cache_hit_stats, d1_lat_penalty = self.eval_cache([max_t1_size*min_allocation_size, 0], cache_server)
+            d2_st_cache_hit_stats, d2_lat_penalty = self.eval_cache([0, max_t2_size*min_allocation_size], cache_server)
             d1_lat_ratio = min_lat/d1_lat_penalty
             d2_lat_ratio = min_lat/d2_lat_penalty
             max_lat_ratio = max(d1_lat_ratio, d2_lat_ratio)
