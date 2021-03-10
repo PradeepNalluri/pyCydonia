@@ -32,7 +32,8 @@ class NPHist:
         self.cold_miss = file_data[0]
 
 
-    def get_lat_ratio_curve(self, cache_server, budget_percentage_array=range(1,101)):
+    def get_lat_ratio_curve(self, cache_server, budget_percentage_array=range(1,101),
+        min_allocation_size=1):
         """ Generate an OPT latency ratio curve for this RD histogram and cache server. 
         """
         max_budget = cache_server.config[0]["price"]*self.max_cache_size
@@ -45,8 +46,8 @@ class NPHist:
             start = time.time()
             budget_ratio = float(budget_percentage/100)
             cur_budget = budget_ratio * max_budget
-            max_t1_size = math.floor(cur_budget/cache_server.config[0]["price"])
-            max_t2_size = math.floor(cur_budget/cache_server.config[1]["price"])
+            max_t1_size = math.floor(cur_budget/(cache_server.config[0]["price"]*min_allocation_size))
+            max_t2_size = math.floor(cur_budget/(cache_server.config[1]["price"]*min_allocation_size))
 
             # eval single tier configurations first and record 
             d1_st_cache_hit_stats, d1_lat_penalty = self.eval_cache([max_t1_size, 0], cache_server)
@@ -66,6 +67,7 @@ class NPHist:
             st_data.append([d1_output_tuple, d2_output_tuple])
 
             for cur_t1_size in range(max_t1_size+1):
+                cur_t1_size = cur_t1_size * min_allocation_size
                 cur_t1_budget = cur_t1_size*cache_server.config[0]["price"]
                 cur_t2_budget = cur_budget - cur_t1_budget
                 cur_t2_size = math.floor(cur_t2_budget/cache_server.config[1]["price"])
@@ -83,7 +85,7 @@ class NPHist:
 
                 if lat_ratio > max_lat_ratio:
                     max_lat_ratio = lat_ratio 
-                    max_lat_ratio_mt_config = [cur_t1_size, cur_t2_size]
+                    max_lat_ratio_mt_config = [cur_t1_size * min_allocation_size, cur_t2_size * min_allocation_size]
                     max_lat_ratio_cache_hit_stats = cache_hit_stats
                     max_lat_ratio_budget_split = cur_t1_budget/(cur_t1_budget+cur_t2_budget)
 
