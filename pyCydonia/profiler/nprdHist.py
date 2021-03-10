@@ -55,8 +55,8 @@ class NPHist:
             d1_lat_ratio = min_lat/d1_lat_penalty
             d2_lat_ratio = min_lat/d2_lat_penalty
             max_lat_ratio = max(d1_lat_ratio, d2_lat_ratio)
-            max_lat_ratio_mt_config = [max_t1_size, 0] if d1_lat_ratio >= d2_lat_ratio \
-                else [0, max_t2_size]
+            max_lat_ratio_mt_config = [max_t1_size*min_allocation_size, 0] if d1_lat_ratio >= d2_lat_ratio \
+                else [0, max_t2_size*min_allocation_size]
             max_lat_ratio_cache_hit_stats = d1_st_cache_hit_stats if d1_lat_ratio >= d2_lat_ratio \
                 else d2_st_cache_hit_stats
             max_lat_ratio_budget_split = 1.0 if d1_lat_ratio >= d2_lat_ratio else 0.0
@@ -85,7 +85,7 @@ class NPHist:
 
                 if lat_ratio > max_lat_ratio:
                     max_lat_ratio = lat_ratio 
-                    max_lat_ratio_mt_config = [cur_t1_size * min_allocation_size, cur_t2_size * min_allocation_size]
+                    max_lat_ratio_mt_config = [cur_t1_size, cur_t2_size]
                     max_lat_ratio_cache_hit_stats = cache_hit_stats
                     max_lat_ratio_budget_split = cur_t1_budget/(cur_t1_budget+cur_t2_budget)
 
