@@ -1,35 +1,123 @@
 import math 
-import argparse 
 import time 
-import pathlib 
-import logging
-import constant
+import logging 
 from collections import namedtuple
+
 import numpy as np 
+import matplotlib.pyplot as plt
 logging.basicConfig(format='%(asctime)s,%(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 
 from pyCydonia.cacheServer.cacheServer import CacheServer
 
+class LoadDataException(Exception):
+    pass
+
+
 class NPHist:
-    def __init__(self):
-        self.data = None
-        self.cold_miss = None 
+    def __init__(self, PAGE_SIZE=4096):
+        self.page_size = PAGE_SIZE
+        # hit stats 
+        self.hit_count = np.empty(0)
+        self.cold_miss_count = [0, 0]
+        # cache info 
         self.max_cache_size = 0
-        self.output_headers = ['budget_ratio', 'cur_budget',
-            'lat_ratio', 'budget_split', 't1_size', 't2_size']
+        self.max_cache_size_mb = 0
+        # IO stat
+        self.read_count = 0 
+        self.write_count = 0 
+        self.io_count = 0 
+        
 
-
-    def load_rd_hist_file(self, rd_hist_file):
-        file_data = np.genfromtxt(rd_hist_file, delimiter=',', dtype=int)
-
-        """ self.data contains the number of read and write hits for cache 
-            sizes represented by the index. self.data[2] gives the number 
-            of read and write hits for an LRU cache of size 2. 
+    def load(self, rd_hist_file):
+        """ self.hit_count contains the number of read and write 
+            hits at cache sizes equal to the index. So, self.rd_hist[2]
+            contains the number of read and write hits for cache size 2. 
+            self.rd_hist[0] = [0,0] 
         """
-        self.data = np.zeros((len(file_data), 2), dtype=int)
-        self.max_cache_size = len(file_data)-1
-        self.data[1:] = file_data[1:].cumsum(axis=0)
-        self.cold_miss = file_data[0]
+
+        file_data = np.genfromtxt(rd_hist_file, delimiter=',', dtype=int)
+        self.hit_count = np.zeros((len(file_data), 2), dtype=int)
+
+        # not storing cold misses from the file data at file_data[0] in hit count 
+        self.hit_count[1:] = file_data[1:].cumsum(axis=0) 
+        self.cold_miss_count = file_data[0]
+
+        self.max_cache_size = len(file_data)-1 
+        self.max_cache_size_mb = ((len(file_data)-1)*self.page_size)/(1024*1024) # convert to MB 
+        
+        self.read_count = self.hit_count[-1][0] + self.cold_miss_count[0]
+        self.write_count = self.hit_count[-1][1] + self.cold_miss_count[1]
+        self.io_count = self.read_count + self.write_count
+
+
+    def read_cold_miss_rate(self):
+        if self.hit_count.size == 0:
+            raise LoadDataException("No Rd Histogram loaded!")
+        return self.cold_miss_count[0]/self.read_count
+
+
+    def write_percent(self):
+        if self.hit_count.size == 0:
+            raise LoadDataException("No Rd Histogram loaded!")
+        return 100*self.write_count/self.io_count
+
+    
+    def plot_read_mrc(self, 
+        output_path, 
+        num_x_labels=10, 
+        cache_size_multiple=25, 
+        max_mrc_size_mb=2048):
+
+        if self.hit_count.size == 0:
+            raise LoadDataException("No Rd Histogram loaded!")
+
+        r_mrc = (self.read_count - self.hit_count[:, 0])/self.read_count
+        MRC_LENGTH = len(r_mrc)
+        if max_mrc_size_mb > 0:
+            max_cache_size = min(math.ceil((max_mrc_size_mb*1024*1024)/self.page_size), len(r_mrc))
+            MRC_LENGTH = min(max_cache_size, len(r_mrc))
+
+        fig, ax = plt.subplots(figsize=(14,7))
+        ax.plot(r_mrc[:MRC_LENGTH])
+
+        # setup x-axis labels
+        xtick_values = np.arange(0, MRC_LENGTH+1, (cache_size_multiple*1024*1024)/self.page_size)
+        xtick_values_scaled = xtick_values[0::int(len(xtick_values)/num_x_labels)]
+        xlabel_ticks = ['{}'.format(int(_ * self.page_size/(1024*1024))) for _ in xtick_values_scaled]
+        ax.tick_params(axis='x', rotation=90)
+        ax.set_xticks(xtick_values_scaled)
+        ax.set_xticklabels(xlabel_ticks)
+
+        label_format = '{}'
+        xlabel_ticks = [label_format.format(int(_)) for _ in np.linspace(256, MRC_LENGTH, num=10)//256]
+        
+        ax.set_xlabel("Cache Size (MB)")
+        ax.set_ylabel("Miss Rate")
+        ax.set_title("Workload: {}, Read Cold Miss Rate: {:.2f} \n Ops: {:.1f}M / {}GB Write: {:.1f}%".format(
+            output_path.stem, 
+            self.read_cold_miss_rate(),
+            self.io_count/1000000,
+            math.ceil(self.io_count*self.page_size/(1024*1024*1024)),
+            self.write_percent()))
+
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+
+
+    def get_exclusive_hits(self, t1_size, t2_size):
+        t1_hits = np.sum(self.hit_count[:t1_size+1][0], axis=1)
+        t2_hits = np.sum(self.hit_count[t1_size+1:t1_size+t2_size+1])
+        return t1_hits, t2_hits 
+
+
+
+
+
+
+
+
 
 
     def get_lat_ratio_curve(self, cache_server, budget_percentage_array=range(1,101),
