@@ -1,9 +1,8 @@
 import pathlib 
 import math, sys
 
-from numpy.lib.shape_base import split 
-
 from PyMimircache import Cachecow
+
 from pyCydonia.profiler.rdHist import RDHist
 
 
