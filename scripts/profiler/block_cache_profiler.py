@@ -1,4 +1,5 @@
-import argparse 
+import argparse
+from genericpath import exists 
 import pathlib 
 
 from pyCydonia.reader.CPReader import CPReader
@@ -13,28 +14,27 @@ if __name__ == "__main__":
                 "block_trace_path", 
                 type=pathlib.Path, 
                 help="Path to the block trace in CSV format")
-    
-    parser.add_argument(
-                "--rd", 
-                default=None,
-                type=pathlib.Path, 
-                help="Path to trace with reuse distance of each page request")
 
     parser.add_argument(
-                "--out", 
-                default=None, 
+                "--out_dir", 
+                default=pathlib.Path("/research/file_system_traces/cp_traces/BlockTraceFeatures/cloudphysics"), 
                 type=pathlib.Path, 
-                help="Output path for stats (stdout if nothing passed)")
+                help="Output dir for stats")
 
     args = parser.parse_args()
-    reader = CPReader(args.block_trace_path)
 
-    if args.rd is None:
-        profiler = BlockTraceProfiler(reader, 
-                        ["block"],
-                        window_size=30*60*1e6, # 30 minutes 
-                        rd_dir="/research/file_system_traces/cp_traces/mtcache/rd_traces_4k",
-                        page_dir="/research/file_system_traces/cp_traces/mtcache/page_traces_4k",
-                        rd_snapshot_dir="/research/file_system_traces/cp_traces/mtcache/rd_snapshot_4k",
-                        workload_snapshot_dir="/research/file_system_traces/cp_traces/mtcache/workload_snapshot_4k")
-        profiler.run()
+    # create a directory for this workload 
+    workload_name = args.block_trace_path.stem 
+    workload_dir = args.out_dir.joinpath(workload_name)
+    workload_dir.mkdir(exist_ok=True)
+
+    # create directory for block stat snapshots 
+    block_snapshot_dir = workload_dir.joinpath("block_snapshots")
+    block_snapshot_dir.mkdir(exist_ok=True)
+
+    reader = CPReader(args.block_trace_path)
+    profiler = BlockTraceProfiler(reader, 
+                    ["block"],
+                    window_size=30*60*1e6, # 30 minutes 
+                    snapshot_dir=block_snapshot_dir)
+    profiler.generate_features(out_path=args.out_dir.joinpath("block.csv"))

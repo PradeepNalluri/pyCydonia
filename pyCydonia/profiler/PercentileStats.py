@@ -8,6 +8,7 @@ import numpy as np
 class PercentileStats:
     def __init__(self, size=0):
         # it can be fixed sized array or list depending on size input 
+        # trying to use numpy when possible 
         self.size = size
         if size == 0:
             self.data = [] 
