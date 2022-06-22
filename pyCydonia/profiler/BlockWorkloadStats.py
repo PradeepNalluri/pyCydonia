@@ -1,9 +1,17 @@
 import copy 
-import numpy as np 
 import time
+import numpy as np 
 from collections import Counter, defaultdict 
 
+# logging setup 
+# TODO: create a logging class 
+import logging
+logging.basicConfig(format='%(levelname)s: %(message)s')
+logger = logging.getLogger('workload_stat_logger')
+logger.setLevel(logging.DEBUG)
+
 from pyCydonia.profiler.PercentileStats import PercentileStats
+
 
 """ BlockWorkloadStats
     ------------------
@@ -12,12 +20,13 @@ from pyCydonia.profiler.PercentileStats import PercentileStats
 
     Parameters
     ----------
-    lba_size : int 
+    lba_size : int (Optional)
         size of a logical block address in bytes (Default: 512)
-    page_size : int 
+    page_size : int (Optional)
         size of a page in bytes (Default: 4096)
 """
-
+# TODO: rename class to BlockCacheStat, since the features are more 
+# about a block cache, than just the block workload
 class BlockWorkloadStats:
 
     def __init__(self, lba_size=512, page_size=4096):
@@ -47,15 +56,9 @@ class BlockWorkloadStats:
         self._jump_distance_stats = PercentileStats()
         self._scan_stats = PercentileStats()
 
-        # tracking information from previous window 
         self._prev_req = None 
-        self._prev_window_read_page_access_counter = None 
-        self._prev_window_write_page_access_counter = None 
-        self._prev_window_read_popularity_map = None 
-        self._prev_window_write_popularity_map = None 
         self._scan_length = 0 
-
-        self.start_time = time.time()
+        self._start_time = time.time()
 
 
     def block_req_count(self):
@@ -65,7 +68,7 @@ class BlockWorkloadStats:
 
     def write_block_req_split(self):
         """ This function returns the fraction of block requests that were writes. """
-        return self._write_block_req_count/self.block_req_count()
+        return 0 if self.block_req_count()==0 else self._write_block_req_count/self.block_req_count()
 
 
     def io_request_size_sum(self):
@@ -75,7 +78,7 @@ class BlockWorkloadStats:
 
     def write_io_request_size_split(self):
         """ This function returns the fraction of IO that was for write requests. """
-        return self._write_io_request_size_sum/self.io_request_size_sum()
+        return 0 if self.io_request_size_sum()==0 else self._write_io_request_size_sum/self.io_request_size_sum()
 
 
     def page_access_count(self):
@@ -85,7 +88,7 @@ class BlockWorkloadStats:
 
     def write_page_access_split(self):
         """ This function returns the fraction of write page requests. """
-        return self._write_page_access_count/self.page_access_count()
+        return 0 if self.page_access_count()==0 else self._write_page_access_count/self.page_access_count()
 
     
     def seq_count(self):
@@ -95,7 +98,7 @@ class BlockWorkloadStats:
 
     def write_seq_split(self):
         """ This function returns the number of sequential block accesses that were writes. """
-        return self._write_seq_count/self.seq_count()
+        return 0 if self.seq_count()==0 else self._write_seq_count/self.seq_count()
 
 
     def range(self):
@@ -148,15 +151,42 @@ class BlockWorkloadStats:
     
     def write_page_working_set_size_split(self):
         """ This function returns the fraction of working set size that was written upon. """
-        return self.write_page_working_set_size()/self.page_working_set_size()
+        return 0 if self.page_working_set_size()==0 else self.write_page_working_set_size()/self.page_working_set_size()
+
+    
+    def read_page_popularity_map(self):
+        """ This function returns a map of pages read to its popularity. """
+        return self._get_popularity_map(self._read_page_access_counter, self._read_page_access_count)
 
 
-    def page_popularity_map(self, counter):
-        """ This functions returns the map of each page and its popularity. """
+    def write_page_popularity_map(self):
+        """ This function returns a map of pages written to its popularity. """
+        return self._get_popularity_map(self._write_page_access_counter, self._write_page_access_count)
+
+
+    def _get_popularity_map(self, counter, total):
         popularity_map = defaultdict(float)
-        for key in counter:
-            popularity_map[key] = counter[key]/self.page_access_count()
+        for key in counter.keys():
+            popularity_map[key] = counter[key]/total
         return popularity_map
+
+
+    def _get_popularity_percentile(self, counter, total):
+        popularity_map = self._get_popularity_map(counter, total)
+        popularity_stat = PercentileStats(size=len(popularity_map.keys()))
+        for page_key in popularity_map:
+            popularity_stat.add_data(popularity_map[page_key])
+        return popularity_stat
+        
+
+    def _get_popularity_change_percentile(self, cur_map, prev_map):
+        prev_window_key_set = set(prev_map.keys())
+        cur_window_key_set = set(cur_map)
+        final_key_set = set.union(cur_window_key_set, prev_window_key_set)
+        popularity_stat = PercentileStats(size=len(final_key_set))
+        for page_key in final_key_set:
+            popularity_stat.add_data(cur_map[page_key]-prev_map[page_key])
+        return popularity_stat
 
 
     def _track_req_alignment(self, req):
@@ -234,45 +264,6 @@ class BlockWorkloadStats:
             raise ValueError("Operation {} not supported. Only 'r' or 'w'".format(req["op"]))
 
 
-    def _get_popularity_data(self, counter, prev_counter, prev_map):
-        """ Get the popularity counter 
-
-            Parameters
-            ----------
-            counter : Counter 
-                the counter values of the current window 
-            prev_counter : Counter 
-                the counter values at the previous window 
-            prev_map : defauldict 
-                the map of item popularity of the previous window 
-
-            Return 
-            ------
-            popularity_change_array : np.array 
-                numpy array containing popularity change of each item 
-            popularity_map : defaultdict 
-                map of item to popularity 
-        """
-
-        if prev_counter is None:
-            return None, None 
-
-        delta = counter - prev_counter
-        popularity_map = self.page_popularity_map(delta)
-        
-        if prev_map is not None:
-            prev_window_key_set = set(prev_map.keys())
-            cur_window_key_set = set(popularity_map)
-            final_key_set = set.union(cur_window_key_set, prev_window_key_set)
-
-            popularity_change_array = PercentileStats(size=len(final_key_set))
-            for key in final_key_set:
-                popularity_change_array.add_data(popularity_map[key] - prev_map[key])
-            return popularity_change_array, popularity_map
-        else:
-            return None, popularity_map
-        
-
     def _track_popularity(self, req):
         """ Change in popularity of an item. 
 
@@ -297,23 +288,6 @@ class BlockWorkloadStats:
                 self._scan_length += 1
 
 
-    def add_request(self, block_req):
-        """ Update the statistics based on a block request 
-            provided by the user. 
-
-            Parameters
-            ----------
-            block_req : object 
-                an object containing block request features
-        """
-
-        self._track_op_type(block_req)
-        self._track_seq_access(block_req)
-        self._track_req_alignment(block_req)
-        self._track_popularity(block_req)
-        self._prev_req = block_req
-
-    
     def _snap_req_stats(self):
         """ This function returns an array of statistics 
             of block requests in string format which can 
@@ -397,34 +371,47 @@ class BlockWorkloadStats:
 
     def _snap_popularity_stat(self):
         """ This function returns an array of popularity statistics 
-            of each page in string format which can be printed or written 
+            in string format which can be printed or written 
             to file. 
         """
 
-        r_delta_array, r_popularity_map = self._get_popularity_data(self._read_page_access_counter,
-                                                                    self._prev_window_read_page_access_counter,
-                                                                    self._prev_window_read_popularity_map)
-        w_delta_array, w_popularity_map = self._get_popularity_data(self._write_page_access_counter,
-                                                                    self._prev_window_write_page_access_counter,
-                                                                    self._prev_window_write_popularity_map)
-
-        self._prev_window_read_page_access_counter = copy.deepcopy(self._read_page_access_counter)
-        self._prev_window_write_page_access_counter = copy.deepcopy(self._write_page_access_counter)
-
-        self._prev_window_read_popularity_map = r_popularity_map
-        self._prev_window_write_popularity_map = w_popularity_map
+        read_popularity_stat = self._get_popularity_percentile(self._read_page_access_counter,
+                                                                self._read_page_access_count)
+        write_popularity_stat = self._get_popularity_percentile(self._write_page_access_counter,
+                                                                self._write_page_access_count)
 
         out_str_array = []
-        if r_delta_array is not None:
-            out_str_array += r_delta_array.get_row()
-        
-        if w_delta_array is not None:
-            out_str_array += w_delta_array.get_row()
+        out_str_array += read_popularity_stat.get_row()
+        out_str_array += write_popularity_stat.get_row()
 
         return out_str_array
 
 
-    def snapshot(self, window_index, ts, out_handle=None, force_print=False):
+    def _snap_popularity_change_stats(self, prev_read_map, prev_write_map):
+        read_popularity_map = self._get_popularity_map(self._read_page_access_counter,
+                                                    self._read_page_access_count)
+        write_popularity_map = self._get_popularity_map(self._write_page_access_counter,
+                                                    self._write_page_access_count)
+        
+        read_popularity_change_stat = self._get_popularity_change_percentile(read_popularity_map,
+                                                                                prev_read_map)
+        write_popularity_change_stat = self._get_popularity_change_percentile(write_popularity_map,
+                                                                                prev_write_map)
+        
+        out_str_array = []
+        out_str_array += read_popularity_change_stat.get_row()
+        out_str_array += write_popularity_change_stat.get_row()
+
+        return out_str_array
+
+
+    def snapshot(self, 
+            window_index, 
+            ts, 
+            out_handle=None, 
+            force_print=False, 
+            **kwargs):
+
         """ This function outputs the features of a block workload. 
 
             Parameters
@@ -436,8 +423,7 @@ class BlockWorkloadStats:
             out_handle : int (Optional)
                 the handle to write to (Default: None)
             force_print : bool (Optional)
-                whether to write to file and print as well (Default: False)
-        """
+                force printing even when writing to file (Default: False) """
 
         snap_data = []
         snap_data += self._snap_req_stats()
@@ -453,16 +439,19 @@ class BlockWorkloadStats:
         snap_data += self._jump_distance_stats.get_row()
         snap_data += self._scan_stats.get_row()
 
-        self._read_size_stats = PercentileStats()
-        self._write_size_stats = PercentileStats()
-        self._jump_distance_stats = PercentileStats()
-        self._scan_stats = PercentileStats()
+        if 'prev_read_map' in kwargs and 'prev_write_map' in kwargs:
+            snap_data += self._snap_popularity_change_stats(kwargs['prev_read_map'], 
+                                                kwargs['prev_write_map'])
+        else:
+            # TODO: this part not tested yet 
+            snap_data += PercentileStats().get_row()
+            snap_data += PercentileStats().get_row()
 
-        if window_index % 10 == 0:
-            cur_time = time.time()
-            print("Window: {}, TS: {}, Elasped: {}".format(window_index, 
-                                                            ts/1e6,
-                                                            (cur_time-self.start_time)/60))
+        cur_time = time.time()
+        time_elasped_mins = (cur_time-self._start_time)/60
+        logger.info("Window: {}, TS: {}, Elasped: {}".format(window_index, 
+                                                        ts/1e6,
+                                                        time_elasped_mins))
 
         out_str = ",".join(snap_data)
         if out_handle is not None:
@@ -471,3 +460,60 @@ class BlockWorkloadStats:
                 print(out_str)
         else:
             print(out_str)
+
+
+    def add_request(self, block_req):
+        """ Update the statistics based on a block request 
+            provided by the user. 
+
+            Parameters
+            ----------
+            block_req : dict 
+                dict containing block request features """
+
+        self._track_op_type(block_req)
+        self._track_seq_access(block_req)
+        self._track_req_alignment(block_req)
+        self._track_popularity(block_req)
+        self._prev_req = block_req
+
+
+    def __sub__(self, other):
+        """ Override subtraction for this class. 
+
+            Parameters
+            ----------
+            other : BlockWorkloadStats 
+                another BlockWorkloadStats object """
+
+        res = BlockWorkloadStats()
+        res._read_block_req_count = self._read_block_req_count - other._read_block_req_count
+        res._write_block_req_count = self._write_block_req_count - other._write_block_req_count
+        res._read_page_access_count = self._read_page_access_count - other._read_page_access_count
+        res._write_page_access_count = self._write_page_access_count - other._write_page_access_count
+        res._read_io_request_size_sum = self._read_io_request_size_sum - other._read_io_request_size_sum
+        res._write_io_request_size_sum = self._write_io_request_size_sum - other._write_io_request_size_sum
+        res._read_seq_count = self._read_seq_count - other._read_seq_count
+        res._write_seq_count = self._write_seq_count - other._write_seq_count
+        res._read_misalignment_sum = self._read_misalignment_sum - other._read_misalignment_sum
+        res._write_misalignment_sum = self._write_misalignment_sum - other._write_misalignment_sum
+        res._min_read_page = min(self._min_read_page, other._min_read_page)
+        res._min_write_page = min(self._min_write_page, other._min_write_page)
+        res._max_read_page = max(self._max_read_page, other._max_read_page)
+        res._max_write_page = max(self._max_write_page, other._max_write_page)
+        res._read_page_access_counter = self._read_page_access_counter - other._read_page_access_counter
+        res._write_page_access_counter = self._write_page_access_counter - other._write_page_access_counter
+        res._read_size_stats = self._read_size_stats - other._read_size_stats
+        res._write_size_stats = self._write_size_stats - other._write_size_stats
+        res._jump_distance_stats = self._jump_distance_stats - other._jump_distance_stats
+        res._scan_stats = self._scan_stats - other._scan_stats
+
+        res._prev_req = self._prev_req
+        res._prev_window_read_page_access_counter = self._prev_window_read_page_access_counter
+        res._prev_window_read_popularity_map = self._prev_window_read_popularity_map
+        res._prev_window_write_page_access_counter = self._prev_window_write_page_access_counter
+        res._prev_window_write_popularity_map = self._prev_window_write_popularity_map
+        res._scan_length = self._scan_length
+        res.start_time = self._start_time
+
+        return res 

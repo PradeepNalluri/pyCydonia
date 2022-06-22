@@ -16,6 +16,7 @@ class PercentileStats:
             self.data = np.zeros(size, dtype=float)
             self.cur_index = 0 
 
+        # TODO: clean up the hardcoded values to input with defaults 
         self.percentile_step_size = 5 
         self.percentiles_tracked = [1] + list(range(self.percentile_step_size,101))
 
@@ -50,3 +51,20 @@ class PercentileStats:
     
     def is_empty(self):
         return len(self.data)
+
+
+    def __sub__(self, other):
+        """ Override the subtract operation """
+        if self.size == 0:
+            result = PercentileStats()
+            assert other.size == 0, \
+                    "One is a static array and the other is dynamic"
+        else:
+            result = PercentileStats(size=self.size)
+            assert other.size > 0, \
+                    "One is a static array and the other is dynamic"
+        
+        for data_entry in self.data:
+            if data_entry not in other.data:
+                result.add_data(data_entry)
+        return result 

@@ -4,27 +4,16 @@ from pyCydonia.reader.Reader import Reader
 
 class CPReader(Reader): 
     """
-    The class to read the CSV version of CloudPhysics traces. 
+    The class reads CSV Cloudphysics traces and returns 
+    block requests. 
 
-    Attributes
+    Parameters
     ----------
-    trace_path : Path
-        Path object to the path of the CSV CloudPhysics trace 
-    
-    Methods
-    -------
-    get_next_block_req(self)
-        Return a dict of block request attributes and its corresponding values 
+    trace_path : str
+        path of the CSV CloudPhysics trace 
     """
 
     def __init__(self, trace_path):
-        """
-        Parameters
-        ----------
-        trace_path : str 
-            path of the page trace 
-        """
-
         super().__init__(trace_path)
         self.key_list = ["ts", "lba", "op", "size"]
         self.cur_block_req = {} # stores current req 
@@ -34,7 +23,7 @@ class CPReader(Reader):
 
 
     def get_next_block_req(self, **kwargs):
-        """ Return a dict of block request attributes and its corresponding values 
+        """ Return a dict of block request attributes
 
         Return 
         ------
@@ -64,6 +53,7 @@ class CPReader(Reader):
             if 'page_size' in kwargs:
                 page_size = int(kwargs['page_size'])
                 block_req["start_page"] = (block_req["lba"] * self.block_size)//page_size
+                block_req["key"] = block_req["start_page"]
                 block_req["page_start_offset"] = block_req["start_page"] * page_size 
                 block_req["end_page"] = (block_req["end_offset"]-1)//page_size 
                 block_req["page_end_offset"] = (block_req["end_page"]+1) * page_size 
@@ -84,7 +74,6 @@ class CPReader(Reader):
 
         self.trace_file_handle.seek(0)
         self.cur_block_req = {}
-        self.start_time_ts = None 
 
 
     def merge(self, reader2, output_path):
