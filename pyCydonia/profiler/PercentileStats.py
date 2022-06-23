@@ -19,7 +19,7 @@ class PercentileStats:
 
         # TODO: clean up the hardcoded values to input with defaults 
         self.percentile_step_size = 5 
-        self.percentiles_tracked = [1] + list(range(self.percentile_step_size,101))
+        self.percentiles_tracked = [1] + list(range(self.percentile_step_size,101, self.percentile_step_size))
 
 
     def add_data(self, data_entry):

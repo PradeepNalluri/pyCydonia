@@ -163,6 +163,10 @@ class BlockTraceProfiler:
         self._stat_local['block'] = BlockWorkloadStats()
 
 
+    def _snap_rd(self):
+        pass 
+
+
     def generate_features(self, out_path=None):
         """ This function computes features from the provided trace. """
         start_time = time.time()
@@ -209,21 +213,24 @@ class BlockTraceProfiler:
             if self._workload_stat_snapshot_file_handle is not None:
                 self._workload_stat_snapshot_file_handle.close()
 
+            # print final stats 
+            stat_str_array = self._stat['block'].stat_str_array()
+            feature_array = self._stat['block'].features
+            for feature_index, feature_header in enumerate(feature_array):
+                logger.info("{}: {}".format(feature_header, stat_str_array[feature_index]))
+
+            # if we output to a file 
+            if out_path is not None:
+                if not pathlib.Path(out_path).exists():
+                    with open(out_path, 'w+') as f:
+                        f.write("")
+                with open(out_path, "r+") as f:
+                    data = f.read()
+                    if len(data) == 0:
+                        f.write("workload,{}\n".format(",".join(feature_array)))
+                    f.write("{},{}\n".format(self._workload_name, ",".join(stat_str_array)))
+
         end_time = time.time()
         time_elasped_mins = (end_time-start_time)/60
         logger.info("Runtime: {}".format(time_elasped_mins))
-
-        # print final stats 
-        stat_str_array = self._stat['block'].stat_str_array()
-        header_array = self._stat['block'].header
-        for data_index, data_header in enumerate(header_array):
-            logger.info("{}: {}".format(data_header, stat_str_array[data_index]))
-
-        # if we output to a file 
-        if out_path is not None:
-            with open(out_path, "a+") as f:
-                data = f.read()
-                if len(data) == 0:
-                    f.write("{}\n", ",".join(header_array))
-                f.write("{}\n", ",".join(stat_str_array))
                 
