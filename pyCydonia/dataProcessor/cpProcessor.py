@@ -248,7 +248,7 @@ def raw_trace_to_block_trace(raw_trace_file_path, block_trace_file_path, block_s
     # setup reader and write file handle before starting to read the I/O requests
     mimircache = setup_mimircache_for_raw_trace(str(raw_trace_file_path), vscsi_type)
     reader = mimircache.reader
-    write_file_handle = block_trace_file_path.open("w+")
+    write_file_handle = open(block_trace_file_path,"w+")
 
     """
         Read an io which is an array of components of the request. 
