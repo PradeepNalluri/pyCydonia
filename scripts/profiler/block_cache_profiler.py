@@ -88,7 +88,7 @@ if __name__ == "__main__":
             contracts.append(copy.deepcopy(args))
 
         # create a pool of workers to run the feature extraction in parallel
-        pool = mp.Pool(NUM_CORES)
+        pool = mp.Pool(num_jobs)
         results = pool.map(worker_function,contracts)
         pool.close()
         pool.join()
