@@ -6,7 +6,7 @@ import numpy as np
     value being tracked in an array. 
 """
 class PercentileStats:
-    def __init__(self, size=0):
+    def __init__(self, size=0, step_size=5):
         # it can be fixed sized array or list depending on size input 
         # trying to use numpy when possible 
         self.size = size
@@ -17,11 +17,10 @@ class PercentileStats:
             self.data = np.zeros(size, dtype=float)
             self.cur_index = 0 
 
-        # TODO: clean up the hardcoded values to input with defaults 
-        self.percentile_step_size = 5 
+        self.percentile_step_size = step_size
         self.percentiles_tracked = [1] + list(range(self.percentile_step_size,101, self.percentile_step_size))
 
-
+        
     def add_data(self, data_entry):
         """ This function adds an entry to our data 
             whose percentiles we will evaluate. 
@@ -68,4 +67,4 @@ class PercentileStats:
         for data_entry in self.data:
             if data_entry not in other.data:
                 result.add_data(data_entry)
-        return result 
+        return result

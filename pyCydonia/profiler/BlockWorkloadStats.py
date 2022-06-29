@@ -298,21 +298,23 @@ class BlockWorkloadStats:
             req : object 
                 an object containing block request features
         """
-
+        size = req["size"]
+        start = req["start_page"]
+        end = req["end_page"]
         if req["op"] ==  'r':
             self._read_block_req_count += 1
-            self._read_io_request_size_sum += req["size"]
-            self._read_page_access_count += req["end_page"] - req["start_page"] + 1
-            self._min_read_page = min(self._min_read_page, req["start_page"])
-            self._max_read_page = max(self._max_read_page, req["end_page"])
-            self._read_size_stats.add_data(req["size"])
+            self._read_io_request_size_sum += size
+            self._read_page_access_count += end - start + 1
+            self._min_read_page = min(self._min_read_page, start)
+            self._max_read_page = max(self._max_read_page, end)
+            self._read_size_stats.add_data(size)
         elif req["op"] == 'w':
             self._write_block_req_count += 1 
-            self._write_io_request_size_sum += req["size"]
-            self._write_page_access_count += req["end_page"] - req["start_page"] + 1
-            self._min_write_page = min(self._min_write_page, req["start_page"])
-            self._max_write_page = max(self._max_write_page, req["end_page"])
-            self._write_size_stats.add_data(req["size"])
+            self._write_io_request_size_sum += size
+            self._write_page_access_count += end - start + 1
+            self._min_write_page = min(self._min_write_page, start)
+            self._max_write_page = max(self._max_write_page, end)
+            self._write_size_stats.add_data(size)
         else:
             raise ValueError("Operation {} not supported. Only 'r' or 'w'".format(req["op"]))
 
@@ -326,7 +328,7 @@ class BlockWorkloadStats:
                 an object containing block request features
         """
 
-        if req['op'] == 'r': 
+        if req['op'] == 'r':
             for page_index in range(req["start_page"], req["end_page"]+1):
                 if page_index not in self._read_page_access_counter:
                     self._scan_length += 1 
@@ -336,9 +338,13 @@ class BlockWorkloadStats:
                         self._scan_length = 0 
                 self._read_page_access_counter[page_index] += 1
         else:
-            for page_index in range(req["start_page"], req["end_page"]+1):
-                self._write_page_access_counter[page_index] += 1
-                self._scan_length += 1
+            #for page_index in range(req["start_page"], req["end_page"]+1):
+             #   self._write_page_access_counter[page_index] += 1
+              #  self._scan_length+=1
+            start = req["start_page"]
+            end = req["end_page"]
+            self._write_page_access_counter.update(range(start, end+1))
+            self._scan_length += end - start + 1
 
 
     def _snap_req_stats(self):

@@ -1,1 +1,4 @@
 *.pyc
+workloads/
+scripts/profiler/profs/
+
