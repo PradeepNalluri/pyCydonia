@@ -252,4 +252,4 @@ class BlockTraceProfiler:
                     f.write("\n")
                 f.write(",".join(stat_str_array))
                 f.write("\n")
-                
+            f.close()

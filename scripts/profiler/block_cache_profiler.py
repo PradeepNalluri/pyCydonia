@@ -1,6 +1,6 @@
 import argparse
 from genericpath import exists 
-import pathlib 
+import pathlib
 
 from pyCydonia.dataProcessor.cpProcessor import raw_trace_to_block_trace
 from pyCydonia.reader.CPReader import CPReader
@@ -31,13 +31,8 @@ def worker_function(args):
                     window_size=30*60*1e6, # 30 minutes 
                     snapshot_dir=block_snapshot_dir)
     profiler.generate_features(out_path=args.out_dir.joinpath("block.csv"))
-
+    return 0
 if __name__ == "__main__":
-    traceFile = "w83_vscsi2.vscsitrace"
-    csvFile = "w83.csv"
-    #raw_trace_to_block_trace("/net/nap1/workloads/mt-caching/traces/cloudphysics/raw/"+traceFile, pathlib.Path("/home/lglee/pyCydonia/workloads/"+csvFile)) 
-   # print("done processing csv")
-    #exit()
     parser = argparse.ArgumentParser(
                 "Profile a given block trace and generate block cache features."
             )
@@ -68,6 +63,12 @@ if __name__ == "__main__":
                 help="""Number of jobs to run in parallel, -1 to use all cores. default: -1.
                 "Only used in multiple file mode.""")
 
+    parser.add_argument(
+        "--limit_file_size",
+        type=int,
+        default=-1,
+        help="""Limit the size of the file to be process, default: -1(meaning no limit). Else the limit is in MB.)"""
+    )
     args = parser.parse_args()
 
     if(args.mode==0):
@@ -85,7 +86,10 @@ if __name__ == "__main__":
         contracts = []
         for file in files:
             args.block_trace_path = pathlib.Path(file)
-            contracts.append(copy.deepcopy(args))
+            limit_file_size = args.limit_file_size
+            if(limit_file_size!=-1 and args.block_trace_path.stat().st_size<limit_file_size*1024*1024):
+                contracts.append(copy.deepcopy(args))
+        print("Total number of contracts: ", len(contracts))
 
         # create a pool of workers to run the feature extraction in parallel
         pool = mp.Pool(num_jobs)
