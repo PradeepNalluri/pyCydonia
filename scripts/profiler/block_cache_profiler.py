@@ -7,6 +7,7 @@ from pyCydonia.reader.CPReader import CPReader
 from pyCydonia.profiler.BlockTraceProfiler import BlockTraceProfiler
 
 import multiprocessing as mp
+from joblib import Parallel, delayed
 import copy
 
 NUM_CORES = int(mp.cpu_count())
@@ -69,6 +70,14 @@ if __name__ == "__main__":
         default=-1,
         help="""Limit the size of the file to be process, default: -1(meaning no limit). Else the limit is in MB.)"""
     )
+
+    parser.add_argument(
+        "--backend",
+        default="multiprocessing",
+        choices=['multiprocessing', 'joblib'],
+        help="""Type of multiprocessing strategy to use. defualt: multiprocessing. Accepted args: multiprocessing, joblib."""
+    )
+
     args = parser.parse_args()
 
     if(args.mode==0):
@@ -91,11 +100,16 @@ if __name__ == "__main__":
                 contracts.append(copy.deepcopy(args))
         print("Total number of contracts: ", len(contracts))
 
+        use_mp = args.backend=="multiprocessing"
+
         # create a pool of workers to run the feature extraction in parallel
-        pool = mp.Pool(num_jobs)
-        results = pool.map(worker_function,contracts)
-        pool.close()
-        pool.join()
+        if(use_mp):
+            pool = mp.Pool(num_jobs)
+            results = pool.map(worker_function,contracts)
+            pool.close()
+            pool.join()
+        else:
+            results = Parallel(n_jobs=num_jobs, verbose=10)(delayed(worker_function)(contract) for contract in contracts)
 
     else:
         raise ValueError("Invalid mode")

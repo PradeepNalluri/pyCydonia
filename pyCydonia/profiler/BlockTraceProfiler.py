@@ -229,27 +229,7 @@ class BlockTraceProfiler:
                     if len(data) == 0:
                         f.write("workload,{}\n".format(",".join(feature_array)))
                     f.write("{},{}\n".format(self._workload_name, ",".join(stat_str_array)))
-
+                f.close()
         end_time = time.time()
         time_elasped_mins = (end_time-start_time)/60
         logger.info("Runtime: {}".format(time_elasped_mins))
-
-        # print final stats 
-        stat_str_array = self._stat['block'].stat_str_array()
-        header_array = self._stat['block'].header
-        for data_index, data_header in enumerate(header_array):
-            try:
-                logger.info("{}: {}".format(data_header, stat_str_array[data_index]))
-            except:
-                print(data_header, stat_str_array)
-
-        # if we output to a file 
-        if out_path is not None:
-            with open(out_path, "a+") as f:
-                data = f.read()
-                if len(data) == 0:
-                    f.write(",".join(header_array))
-                    f.write("\n")
-                f.write(",".join(stat_str_array))
-                f.write("\n")
-            f.close()
