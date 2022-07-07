@@ -9,29 +9,35 @@ from pyCydonia.profiler.BlockTraceProfiler import BlockTraceProfiler
 import multiprocessing as mp
 from joblib import Parallel, delayed
 import copy
+import pandas as pd
+import numpy as np
 
 NUM_CORES = int(mp.cpu_count())
 
-def worker_function(args):
+def worker_function(main_args):
     """
     Worker function for the parallelization.
     @param args: Object for sending in the arguments to the worker function in parallel.
     """
-    # create a directory for this workload 
-    workload_name = args.block_trace_path.stem 
-    workload_dir = args.out_dir.joinpath(workload_name)
-    workload_dir.mkdir(exist_ok=True)
+    for args in main_args:
+        # create a directory for this workload 
+        workload_name = args.block_trace_path.stem 
+        workload_dir = args.out_dir.joinpath(workload_name)
+        workload_dir.mkdir(exist_ok=True)
 
-    # create directory for block stat snapshots 
-    block_snapshot_dir = workload_dir.joinpath("block_snapshots")
-    block_snapshot_dir.mkdir(exist_ok=True)
+        # create directory for block stat snapshots 
+        block_snapshot_dir = workload_dir.joinpath("block_snapshots")
+        block_snapshot_dir.mkdir(exist_ok=True)
 
-    reader = CPReader(args.block_trace_path)
-    profiler = BlockTraceProfiler(reader, 
-                    ["block"],
-                    window_size=30*60*1e6, # 30 minutes 
-                    snapshot_dir=block_snapshot_dir)
-    profiler.generate_features(out_path=args.out_dir.joinpath("block.csv"))
+        reader = CPReader(args.block_trace_path)
+        profiler = BlockTraceProfiler(reader, 
+                        ["block"],
+                        window_size=30*60*1e6, # 30 minutes 
+                        snapshot_dir=block_snapshot_dir)
+        profiler.generate_features(out_path=args.out_dir.joinpath("block.csv"))
+        del profiler
+        del reader
+        del block_snapshot_dir
     return 0
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -93,13 +99,16 @@ if __name__ == "__main__":
             exit(1)
 
         contracts = []
+        done_files = pd.read_csv(args.out_dir.joinpath("block.csv"))['workload'].tolist()
         for file in files:
             args.block_trace_path = pathlib.Path(file)
+            if(args.block_trace_path.name.replace('.csv','') in done_files):
+                continue
             limit_file_size = args.limit_file_size
-            if(limit_file_size!=-1 and args.block_trace_path.stat().st_size<limit_file_size*1024*1024):
+            if(limit_file_size==-1 or args.block_trace_path.stat().st_size<limit_file_size*1024*1024):
                 contracts.append(copy.deepcopy(args))
         print("Total number of contracts: ", len(contracts))
-
+        contracts = np.split(np.array(contracts), num_jobs)
         use_mp = args.backend=="multiprocessing"
 
         # create a pool of workers to run the feature extraction in parallel

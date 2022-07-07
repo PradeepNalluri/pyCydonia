@@ -233,3 +233,10 @@ class BlockTraceProfiler:
         end_time = time.time()
         time_elasped_mins = (end_time-start_time)/60
         logger.info("Runtime: {}".format(time_elasped_mins))
+        
+        # Deleting the excess storages after each process.
+        self._stat = {} # current stat
+        self._stat_local = {} # stat of the current window 
+        self._prev_stat_local = {} # stat of the previous window
+        self._cur_req = {}
+        self._prev_req = {}
