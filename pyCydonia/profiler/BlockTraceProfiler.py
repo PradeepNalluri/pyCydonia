@@ -1,6 +1,7 @@
 import numpy as np 
 import pathlib 
 import copy 
+import time 
 import logging
 from collections import defaultdict
 logging.basicConfig(format='%(levelname)s:%(message)s')
@@ -40,8 +41,8 @@ class BlockTraceProfiler:
             self._prev_stat_local['block'] = None 
 
             # whether to snapshot stats at a fixed interval of 30 minutes 
-            if 'workload_snapshot_dir' in kwargs:
-                out_dir = pathlib.Path(kwargs['workload_snapshot_dir'])
+            if 'snapshot_dir' in kwargs:
+                out_dir = pathlib.Path(kwargs['snapshot_dir'])
                 out_path = out_dir.joinpath('block_snap_{}.csv'.format(self._workload_name))
                 self._workload_stat_snapshot_file_handle = out_path.open('w+')
             else:
@@ -69,6 +70,7 @@ class BlockTraceProfiler:
         self._window_size = 0
         self._window_start_time = 0 
         self._window_count = 0 
+        self._max_window_index = -1
         if 'window_size' in kwargs:
             self._window_size = kwargs['window_size']
             if 'rd' in self._stat:
@@ -116,10 +118,6 @@ class BlockTraceProfiler:
         if self._cur_req:
             self._time_elasped = self._cur_req["ts"]
             self._cur_req["key"] = self._cur_req["start_page"]
-
-            if "block" in self._stat:
-                self._stat['block'].add_request(self._cur_req)
-                self._stat_local['block'].add_request(self._cur_req)
             if "rd" in self._stat:
                 self._cur_req["rd"] = self._rd_tracker.get_next_rd()
 
@@ -146,8 +144,32 @@ class BlockTraceProfiler:
         return int(window_index)
 
 
-    def run(self):
+    def _snap_stats(self, window_index):
+        snapshot_kwargs = {}
+        if self._prev_stat_local['block'] is not None:
+            snapshot_kwargs['prev_read_map'] = self._prev_stat_local['block'].read_page_popularity_map()
+            snapshot_kwargs['prev_write_map'] = self._prev_stat_local['block'].write_page_popularity_map()
+        else:
+            snapshot_kwargs['prev_read_map'] = defaultdict(float)
+            snapshot_kwargs['prev_write_map'] = defaultdict(float)
+
+        self._stat_local['block'].snapshot(window_index,
+                                        self._prev_req["ts"], 
+                                        out_handle=self._workload_stat_snapshot_file_handle,
+                                        force_print=False,
+                                        **snapshot_kwargs)
+                    
+        self._prev_stat_local['block'] = copy.deepcopy(self._stat_local['block'])
+        self._stat_local['block'] = BlockWorkloadStats()
+
+
+    def _snap_rd(self):
+        pass 
+
+
+    def generate_features(self, out_path=None):
         """ This function computes features from the provided trace. """
+        start_time = time.time()
         # window index begins from 0
         prev_window_index = -1 
         self._load_next_cache_req()
@@ -162,41 +184,59 @@ class BlockTraceProfiler:
                 while window_index != prev_window_index:
                     # if the previous window is -1 we can ignore 
                     if prev_window_index >= 0:
-                        if "rd" in self._stat:
+                        if 'rd' in self._stat:
                             window_rd_tracker = self._rd_tracker - self._prev_rd_tracker
-                            window_rd_tracker.snapshot(window_index, 
+                            window_rd_tracker.snapshot(prev_window_index, 
                                                         self._prev_req["ts"], 
                                                         out_handle=self._rd_stat_snapshot_file_handle,
                                                         force_print=False)
                             self._prev_rd_tracker.copy(self._rd_tracker)
 
                         if 'block' in self._stat: 
-                            snapshot_kwargs = {}
-                            if self._prev_stat_local['block'] is not None:
-                                snapshot_kwargs['prev_read_map'] = self._prev_stat_local['block'].read_page_popularity_map()
-                                snapshot_kwargs['prev_write_map'] = self._prev_stat_local['block'].write_page_popularity_map()
-                            else:
-                                snapshot_kwargs['prev_read_map'] = defaultdict(float)
-                                snapshot_kwargs['prev_write_map'] = defaultdict(float)
-                            
-                            self._stat_local['block'].snapshot(window_index,
-                                                            self._prev_req["ts"], 
-                                                            out_handle=self._workload_stat_snapshot_file_handle,
-                                                            force_print=False,
-                                                            **snapshot_kwargs)
-                                        
-                            self._prev_stat_local['block'] = copy.deepcopy(self._stat_local['block'])
-                            self._stat_local['block'] = BlockWorkloadStats()
-                            
-                    prev_window_index = window_index
+                            self._max_window_index = prev_window_index
+                            self._snap_stats(prev_window_index)
+                    prev_window_index += 1
+                
+            if 'block' in self._stat:
+                self._stat['block'].add_request(self._cur_req)
+                self._stat_local['block'].add_request(self._cur_req)
             self._load_next_cache_req()
 
-        if "rd" in self._stat: 
+        if 'rd' in self._stat: 
             assert self._rd_tracker.get_next_rd() == np.inf, \
                     "The number of request in RD trace doesn't align with block trace"
             self._rd_stat_snapshot_file_handle.close()
         
-        if "block" in self._stat:
-            
+        if 'block' in self._stat:
+            if self._stat_local['block'].block_req_count() > 0:
+                self._snap_stats(self._max_window_index+1)
             if self._workload_stat_snapshot_file_handle is not None:
                 self._workload_stat_snapshot_file_handle.close()
+
+            # print final stats 
+            stat_str_array = self._stat['block'].stat_str_array()
+            feature_array = self._stat['block'].features
+            for feature_index, feature_header in enumerate(feature_array):
+                logger.info("{}: {}".format(feature_header, stat_str_array[feature_index]))
+
+            # if we output to a file 
+            if out_path is not None:
+                if not pathlib.Path(out_path).exists():
+                    with open(out_path, 'w+') as f:
+                        f.write("")
+                with open(out_path, "r+") as f:
+                    data = f.read()
+                    if len(data) == 0:
+                        f.write("workload,{}\n".format(",".join(feature_array)))
+                    f.write("{},{}\n".format(self._workload_name, ",".join(stat_str_array)))
+                f.close()
+        end_time = time.time()
+        time_elasped_mins = (end_time-start_time)/60
+        logger.info("Runtime: {}".format(time_elasped_mins))
+        
+        # Deleting the excess storages after each process.
+        self._stat = {} # current stat
+        self._stat_local = {} # stat of the current window 
+        self._prev_stat_local = {} # stat of the previous window
+        self._cur_req = {}
+        self._prev_req = {}

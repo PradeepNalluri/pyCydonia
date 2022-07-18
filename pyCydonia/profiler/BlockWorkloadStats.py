@@ -25,8 +25,7 @@ from pyCydonia.profiler.PercentileStats import PercentileStats
     page_size : int (Optional)
         size of a page in bytes (Default: 4096)
 """
-# TODO: rename class to BlockCacheStat, since the features are more 
-# about a block cache, than just the block workload
+
 class BlockWorkloadStats:
 
     def __init__(self, lba_size=512, page_size=4096):
@@ -59,6 +58,14 @@ class BlockWorkloadStats:
         self._prev_req = None 
         self._scan_length = 0 
         self._start_time = time.time()
+
+        # TODO: clean up the hardcoded values also used in PercentileStats
+        self._percentile_step_size = 5 
+        self._percentiles_tracked = [1] + list(range(self._percentile_step_size, 101, self._percentile_step_size))
+
+        # call only after percentiles tracked is set
+        self.header = self._header()
+        self.features = self._feature()
 
 
     def block_req_count(self):
@@ -165,6 +172,21 @@ class BlockWorkloadStats:
 
 
     def _get_popularity_map(self, counter, total):
+        """ This function returns a defaultdict map of page key to 
+            its popularity. 
+            
+            Parameters
+            ----------
+            counter : Counter
+                the count of access to each page 
+            total : int 
+                total accesses 
+                
+            Return 
+            ------
+            popularity_map : defaultdict(float)
+                mapping from page key to popularity (0.0-1.0) """
+
         popularity_map = defaultdict(float)
         for key in counter.keys():
             popularity_map[key] = counter[key]/total
@@ -172,6 +194,22 @@ class BlockWorkloadStats:
 
 
     def _get_popularity_percentile(self, counter, total):
+        """ This function returns the percentile stat of page 
+            popularity given a counter of access to each 
+            page and total page accesses. 
+
+            Parameters
+            ----------
+            counter : Counter 
+                counter of number of accesses to each page 
+            total : int 
+                total page accesses 
+
+            Return 
+            ------
+            popularity_stat : PercentileStats 
+                PercentileStats object that can generate the percentile """
+
         popularity_map = self._get_popularity_map(counter, total)
         popularity_stat = PercentileStats(size=len(popularity_map.keys()))
         for page_key in popularity_map:
@@ -180,6 +218,21 @@ class BlockWorkloadStats:
         
 
     def _get_popularity_change_percentile(self, cur_map, prev_map):
+        """ This function returns the percentile of change in 
+            page popularity from one window to another. 
+
+            Parameters
+            ----------
+            cur_map : defaultdict 
+                the mapping of page to its access count 
+            prev_map : defaultdict 
+                the mapping of page to its access count from previous window 
+            
+            Return 
+            ------
+            popularity_stat : PercentileStats 
+                PercentileStats object that can generate the percentile """
+
         prev_window_key_set = set(prev_map.keys())
         cur_window_key_set = set(cur_map)
         final_key_set = set.union(cur_window_key_set, prev_window_key_set)
@@ -245,21 +298,23 @@ class BlockWorkloadStats:
             req : object 
                 an object containing block request features
         """
-
+        size = req["size"]
+        start = req["start_page"]
+        end = req["end_page"]
         if req["op"] ==  'r':
             self._read_block_req_count += 1
-            self._read_io_request_size_sum = req["size"]
-            self._read_page_access_count += req["end_page"] - req["start_page"] + 1
-            self._min_read_page = max(self._min_read_page, req["start_page"])
-            self._max_read_page = max(self._max_read_page, req["end_page"])
-            self._read_size_stats.add_data(req["size"])
+            self._read_io_request_size_sum += size
+            self._read_page_access_count += end - start + 1
+            self._min_read_page = min(self._min_read_page, start)
+            self._max_read_page = max(self._max_read_page, end)
+            self._read_size_stats.add_data(size)
         elif req["op"] == 'w':
             self._write_block_req_count += 1 
-            self._write_io_request_size_sum = req["size"]
-            self._write_page_access_count += req["end_page"] - req["start_page"] + 1
-            self._min_write_page = max(self._min_write_page, req["start_page"])
-            self._max_write_page = max(self._max_write_page, req["end_page"])
-            self._write_size_stats.add_data(req["size"])
+            self._write_io_request_size_sum += size
+            self._write_page_access_count += end - start + 1
+            self._min_write_page = min(self._min_write_page, start)
+            self._max_write_page = max(self._max_write_page, end)
+            self._write_size_stats.add_data(size)
         else:
             raise ValueError("Operation {} not supported. Only 'r' or 'w'".format(req["op"]))
 
@@ -273,7 +328,7 @@ class BlockWorkloadStats:
                 an object containing block request features
         """
 
-        if req['op'] == 'r': 
+        if req['op'] == 'r':
             for page_index in range(req["start_page"], req["end_page"]+1):
                 if page_index not in self._read_page_access_counter:
                     self._scan_length += 1 
@@ -283,9 +338,13 @@ class BlockWorkloadStats:
                         self._scan_length = 0 
                 self._read_page_access_counter[page_index] += 1
         else:
-            for page_index in range(req["start_page"], req["end_page"]+1):
-                self._write_page_access_counter[page_index] += 1
-                self._scan_length += 1
+            #for page_index in range(req["start_page"], req["end_page"]+1):
+             #   self._write_page_access_counter[page_index] += 1
+              #  self._scan_length+=1
+            start = req["start_page"]
+            end = req["end_page"]
+            self._write_page_access_counter.update(range(start, end+1))
+            self._scan_length += end - start + 1
 
 
     def _snap_req_stats(self):
@@ -388,6 +447,16 @@ class BlockWorkloadStats:
 
 
     def _snap_popularity_change_stats(self, prev_read_map, prev_write_map):
+        """ This function returns an array of percentiles of read and 
+            write popularity change. 
+            
+            Parameters
+            ----------
+            prev_read_map : defaultdict 
+                the mapping of pages read to its access count from previous window 
+            prev_write_map : defaultdict 
+                the mapping of pages written to its access count from previous window """
+
         read_popularity_map = self._get_popularity_map(self._read_page_access_counter,
                                                     self._read_page_access_count)
         write_popularity_map = self._get_popularity_map(self._write_page_access_counter,
@@ -405,13 +474,44 @@ class BlockWorkloadStats:
         return out_str_array
 
 
+    def stat_str_array(self, **kwargs):
+        """ This function returns the statistics as an array 
+            of strings that can be printed or written to file. """
+        
+        stat_str_array = []
+        stat_str_array += self._snap_req_stats()
+        stat_str_array += self._snap_io_stats()
+        stat_str_array += self._snap_page_stats()
+        stat_str_array += self._snap_seq_stats()
+        stat_str_array += self._snap_range_stats()
+        stat_str_array += self._snap_alignment_stats()
+        stat_str_array += self._snap_working_set_size()
+        stat_str_array += self._snap_popularity_stat()
+        stat_str_array += self._read_size_stats.get_row()
+        stat_str_array += self._write_size_stats.get_row()
+        stat_str_array += self._jump_distance_stats.get_row()
+        stat_str_array += self._scan_stats.get_row()
+
+        if 'prev_read_map' in kwargs and 'prev_write_map' in kwargs:
+            stat_str_array += self._snap_popularity_change_stats(kwargs['prev_read_map'], 
+                                                kwargs['prev_write_map'])
+        else:
+            # TODO: this part not tested yet 
+            stat_str_array += PercentileStats().get_row()
+            stat_str_array += PercentileStats().get_row()
+
+        assert len(stat_str_array)+2 == len(self.header), \
+                    " The length of stat array {} not equal to header array {}".format(len(stat_str_array), len(self.header))
+        
+        return stat_str_array
+
+
     def snapshot(self, 
             window_index, 
             ts, 
             out_handle=None, 
             force_print=False, 
             **kwargs):
-
         """ This function outputs the features of a block workload. 
 
             Parameters
@@ -425,41 +525,23 @@ class BlockWorkloadStats:
             force_print : bool (Optional)
                 force printing even when writing to file (Default: False) """
 
-        snap_data = []
-        snap_data += self._snap_req_stats()
-        snap_data += self._snap_page_stats()
-        snap_data += self._snap_io_stats()
-        snap_data += self._snap_seq_stats()
-        snap_data += self._snap_alignment_stats()
-        snap_data += self._snap_range_stats()
-        snap_data += self._snap_working_set_size()
-        snap_data += self._snap_popularity_stat()
-        snap_data += self._read_size_stats.get_row()
-        snap_data += self._write_size_stats.get_row()
-        snap_data += self._jump_distance_stats.get_row()
-        snap_data += self._scan_stats.get_row()
+        if window_index == 0 and out_handle is not None:
+            self._write_header(out_handle)
 
-        if 'prev_read_map' in kwargs and 'prev_write_map' in kwargs:
-            snap_data += self._snap_popularity_change_stats(kwargs['prev_read_map'], 
-                                                kwargs['prev_write_map'])
-        else:
-            # TODO: this part not tested yet 
-            snap_data += PercentileStats().get_row()
-            snap_data += PercentileStats().get_row()
-
-        cur_time = time.time()
-        time_elasped_mins = (cur_time-self._start_time)/60
-        logger.info("Window: {}, TS: {}, Elasped: {}".format(window_index, 
-                                                        ts/1e6,
-                                                        time_elasped_mins))
-
-        out_str = ",".join(snap_data)
+        stat_str_array = self.stat_str_array(**kwargs)
+        out_str = ",".join(stat_str_array)
         if out_handle is not None:
             out_handle.write("{},{},{}\n".format(window_index, ts, out_str))
             if force_print:
                 print(out_str)
         else:
             print(out_str)
+
+        cur_time = time.time()
+        time_elasped_mins = (cur_time-self._start_time)/60
+        logger.info("Window: {}, TS: {}, Elasped: {}".format(window_index, 
+                                                        ts/1e6,
+                                                        time_elasped_mins))
 
 
     def add_request(self, block_req):
@@ -517,3 +599,63 @@ class BlockWorkloadStats:
         res.start_time = self._start_time
 
         return res 
+
+
+    def _write_header(self, handle):
+        """ This function writes the header to a file represented by a handle. """
+        handle.write("{}\n".format(",".join(self.header)))
+
+
+    def _percentile_header(self, prefix):
+        """ This function returns a list of column names for percentile features. """
+        out_str = []
+        for p in self._percentiles_tracked:
+            out_str.append("{}_{}".format(p, prefix))
+        return out_str
+
+
+    def _header(self):
+        """ This function returns the header of the data generated by this class. """
+        return ["index", "ts"] + self._feature()
+
+
+    def _feature(self):
+        """ This function returns the features of the data generated by this class. """
+        feature_array = [
+            "block_req_count",
+            "read_block_req_count",
+            "write_block_req_count",
+            "write_block_req_split",
+            "io_request_size_sum",
+            "read_io_request_size_sum",
+            "write_io_request_size_sum",
+            "write_io_request_size_split",
+            "page_access_count",
+            "read_page_access_count",
+            "write_page_access_count",
+            "write_page_access_split",
+            "seq_count",
+            "read_seq_count",
+            "write_seq_count",
+            "write_seq_split",
+            "range",
+            "read_range",
+            "write_range",
+            "misalignment_sum",
+            "read_misalignment_sum",
+            "write_misalignment_sum",
+            "page_working_set_size",
+            "read_page_working_set_size",
+            "write_page_working_set_size",
+            "write_page_working_set_size_split"
+        ]
+        feature_array += self._percentile_header("read_page_popularity")
+        feature_array += self._percentile_header("write_page_popularity")
+        feature_array += self._percentile_header("read_block_request_size")
+        feature_array += self._percentile_header("write_block_request_size")
+        feature_array += self._percentile_header("jump_distance")
+        feature_array += self._percentile_header("scan_length")
+        feature_array += self._percentile_header("delta_read_page_popularity")
+        feature_array += self._percentile_header("delta_write_page_popularity")
+
+        return feature_array

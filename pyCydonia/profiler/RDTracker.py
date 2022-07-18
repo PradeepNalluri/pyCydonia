@@ -1,11 +1,15 @@
 import numpy as np 
 import pathlib 
 import copy 
-
 from collections import Counter
 
-
+""" RDTracker
+    ---------
+    This class tracks the reuse distance from 
+    a reuse distance trace. 
+"""
 class RDTracker:
+
     def __init__(self, **kwargs):
         if 'rd_file' in kwargs:
             self._rd_file = pathlib.Path(kwargs['rd_file'])
@@ -22,6 +26,7 @@ class RDTracker:
 
 
     def add_rd(self, rd):
+        """ This function adds a RD value to the counter. """
         self._req_count += 1
         self._rd_counter[rd] += 1
         if rd > self.max_rd:
@@ -29,6 +34,7 @@ class RDTracker:
 
 
     def get_next_rd(self):
+        """ This function returns the next RD value. """
         if self.composed:
             raise ValueError("This RDTracker object was composed from two other RDTracker objects. Cannot load by file.")
         else:
@@ -38,7 +44,6 @@ class RDTracker:
                 self.add_rd(rd)
             else:
                 rd = np.inf
-        
         return rd 
 
 
